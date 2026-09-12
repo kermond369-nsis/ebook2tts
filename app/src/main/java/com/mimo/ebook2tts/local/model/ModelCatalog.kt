@@ -69,6 +69,7 @@ object ModelCatalog {
             primaryUrl = "$GH/sherpa-onnx-vits-zh-ll.tar.bz2",
             mirrorUrl = "$HF/sherpa-onnx-vits-zh-ll.tar.bz2",
             modelName = "model.onnx",
+            lexicon = "lexicon.txt",
             ruleFsts = "phone.fst,date.fst,number.fst",
             approxBytes = 40L * 1024 * 1024,
             kind = "vits",
