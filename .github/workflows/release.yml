@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Release note suffix
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.5
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-version: "8.5"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android platform
+        run: |
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+          yes | sdkmanager --licenses || true
+
+      - name: Build debug APK
+        id: build
+        run: |
+          gradle :app:assembleDebug --no-daemon --stacktrace
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          APK_SRC=app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK_SRC"
+          APK="ebook2tts-local-${SHORT_SHA}-debug.apk"
+          cp "$APK_SRC" "$APK"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "apk=${APK}" >> "$GITHUB_OUTPUT"
+          ls -lh "$APK"
+
+      - name: Resolve release tag
+        id: meta
+        run: |
+          SHORT_SHA="${{ steps.build.outputs.short_sha }}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="build-${SHORT_SHA}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release (gh CLI)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          TAG="${{ steps.meta.outputs.tag }}"
+          SHORT_SHA="${{ steps.build.outputs.short_sha }}"
+          APK="${{ steps.build.outputs.apk }}"
+          REPO="${{ github.repository }}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TITLE="${GITHUB_REF_NAME}"
+          else
+            TITLE="build ${SHORT_SHA}"
+          fi
+          BODY="Automated debug APK for com.mimo.ebook2tts.local.
+
+          - Commit: ${GITHUB_SHA}
+          - Abbreviated: ${SHORT_SHA}
+          - Workflow: ${GITHUB_SERVER_URL}/${REPO}/actions/runs/${GITHUB_RUN_ID}"
+          if [ -n "${{ inputs.reason }}" ]; then
+            BODY="${BODY}
+          - Note: ${{ inputs.reason }}"
+          fi
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --repo "$REPO" --clobber
+            gh release edit "$TAG" --repo "$REPO" --title "$TITLE" --notes "$BODY"
+          else
+            gh release create "$TAG" "$APK" --repo "$REPO" --title "$TITLE" --notes "$BODY" --latest
+          fi
+          gh release view "$TAG" --repo "$REPO" --json name,tagName,url,assets
