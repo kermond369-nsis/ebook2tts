@@ -36,7 +36,7 @@ class LocalSettingsActivity : AppCompatActivity() {
     private lateinit var threadText: TextView
     private lateinit var threadBar: SeekBar
 
-    private var selectedModelId: String = LocalPrefs.modelId(this)
+    private var selectedModelId: String = ""
     private var downloading = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
