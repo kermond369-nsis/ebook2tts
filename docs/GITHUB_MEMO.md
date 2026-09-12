@@ -30,8 +30,8 @@
 
 ## 3. 版本号
 
-- 正式起点：**`0.1beta`**
-- `app/build.gradle.kts`：`versionName = "0.1beta"`
+- 本仓库起点：**`0.1.1Alpha`**（不跟随云端版 `0.1beta`）
+- `app/build.gradle.kts`：`versionName = "0.1.1Alpha"`
 
 ---
 

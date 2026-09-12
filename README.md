@@ -1,5 +1,7 @@
 # ebook2tts-local · 书声本地
 
+> **v0.1.1Alpha** · 作者 **Kermond**
+
 把 **SherpaONNX 本地小模型**（或系统机械 TTS）封装成 Android 标准 Text-to-Speech 引擎。  
 与云端版 [Ebook2tts](../Ebook2tts) **独立仓库、独立包名**，互相借鉴分析逻辑，不共用模块。
 

@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">书声本地</string>
     <string name="tts_engine_label">书声本地 · 多角色有声</string>
-    <string name="author_line">v0.1beta · 作者 Kermond</string>
+    <string name="author_line">v0.1.1Alpha · 作者 Kermond</string>
 </resources>

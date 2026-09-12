@@ -2,7 +2,7 @@ package com.mimo.ebook2tts.local.ui
 
 import android.content.Intent
 import android.os.Bundle
-import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.widget.Button
 import android.widget.RadioGroup
 import android.widget.SeekBar
@@ -59,7 +59,7 @@ class LocalSettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnDeleteModel).setOnClickListener { deleteModel() }
         findViewById<Button>(R.id.btnPickNarrator).setOnClickListener { pickNarrator() }
         findViewById<Button>(R.id.btnOpenTtsSettings).setOnClickListener {
-            startActivity(Intent(Settings.ACTION_TTS_SETTINGS))
+            startActivity(Intent(TextToSpeech.Engine.ACTION_TTS_SETTINGS))
         }
         findViewById<Button>(R.id.btnTest).setOnClickListener { testSpeak() }
 
@@ -185,7 +185,7 @@ class LocalSettingsActivity : AppCompatActivity() {
             "请在系统 TTS 设置中选「书声本地」并点朗读测试，或用小说软件试听",
             Toast.LENGTH_LONG
         ).show()
-        startActivity(Intent(Settings.ACTION_TTS_SETTINGS))
+        startActivity(Intent(TextToSpeech.Engine.ACTION_TTS_SETTINGS))
     }
 
     private fun simpleSeek(onChange: (Int) -> Unit) = object : SeekBar.OnSeekBarChangeListener {
