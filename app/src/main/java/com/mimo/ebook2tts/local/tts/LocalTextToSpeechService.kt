@@ -88,6 +88,7 @@ class LocalTextToSpeechService : TextToSpeechService() {
         currentRequestStopped = false
         engine.resetStopped()
 
+        Log.i(TAG, "onSynthesizeText len=${text.length}")
         val result = try {
             engine.synthesize(text)
         } catch (t: Throwable) {
@@ -96,12 +97,14 @@ class LocalTextToSpeechService : TextToSpeechService() {
         }
 
         if (result == null || result.pcm.isEmpty() || currentRequestStopped) {
+            Log.w(TAG, "empty result pcm=${result?.pcm?.size ?: 0}")
             // 空结果也要 start/done，否则框架会卡住
             callback.start(24000, AudioFormat.ENCODING_PCM_16BIT, 1)
             callback.done()
             return
         }
 
+        Log.i(TAG, "pcm ready bytes=${result.pcm.size} sr=${result.sampleRate}")
         callback.start(result.sampleRate, AudioFormat.ENCODING_PCM_16BIT, 1)
 
         // Android SynthesisCallback 每次 maxBufferSize 有限，分块写
