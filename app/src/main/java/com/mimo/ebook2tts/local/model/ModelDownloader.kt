@@ -38,10 +38,10 @@ object ModelDownloader {
     fun status(context: Context, spec: ModelSpec): String {
         val dir = modelDir(context, spec)
         return when {
-            isReady(context, spec) -> "Ready · ${formatSize(dirSize(dir))}"
-            hasAssets(context, spec) -> "Bundled in APK · tap Download to extract"
-            dir.exists() && (dir.list()?.isNotEmpty() == true) -> "Incomplete"
-            else -> "Not downloaded · ~${formatSize(spec.approxBytes)}"
+            isReady(context, spec) -> "已就绪 · ${formatSize(dirSize(dir))}"
+            hasAssets(context, spec) -> "APK 内置 · 点下载/安装解压"
+            dir.exists() && (dir.list()?.isNotEmpty() == true) -> "不完整 · ${dir.list()?.joinToString()}"
+            else -> "未下载 · 约 ${formatSize(spec.approxBytes)}"
         }
     }
 
@@ -119,16 +119,22 @@ object ModelDownloader {
             )
         }
 
-        onProgress(0.86f, "Extracting…")
+        onProgress(0.86f, "解压中…")
+        Log.i(TAG, "extract archive=${archive.length()} -> $target")
         if (target.exists()) target.deleteRecursively()
         target.mkdirs()
         extractTarBz2(archive, target)
+        flattenSingleChildDir(target)
         archive.delete()
-        onProgress(1f, "Done")
 
         if (!isReady(context, spec)) {
-            throw IllegalStateException("Missing after extract: ${spec.modelName}")
+            val listing = target.walkTopDown().filter { it.isFile }.take(20)
+                .joinToString { it.relativeTo(target).path }
+            Log.e(TAG, "not ready after extract. files=$listing")
+            throw IllegalStateException("解压后缺少 ${spec.modelName}，目录内容：$listing")
         }
+        Log.i(TAG, "extract ok size=${dirSize(target)}")
+        onProgress(1f, "完成")
         target
     }
 
@@ -147,25 +153,42 @@ object ModelDownloader {
         if (target.exists()) target.deleteRecursively()
         target.mkdirs()
         val am = context.assets
-        val prefix = "models/${spec.dirName}/"
-        fun walk(path: String) {
-            val children = am.list(path) ?: return
-            if (children.isEmpty()) {
-                // file
-                val name = path.removePrefix(prefix)
-                if (name.isEmpty()) return
-                val out = File(target, name)
-                out.parentFile?.mkdirs()
-                am.open(path).use { input ->
-                    FileOutputStream(out).use { output -> input.copyTo(output) }
-                }
-            } else {
-                for (c in children) {
-                    walk(if (path.isEmpty()) c else "$path/$c")
-                }
+        val prefix = "models/${spec.dirName}"
+        fun copyFile(assetPath: String, outFile: File) {
+            outFile.parentFile?.mkdirs()
+            am.open(assetPath).use { input ->
+                FileOutputStream(outFile).use { output -> input.copyTo(output) }
             }
         }
-        walk(prefix.removeSuffix("/"))
+        fun walk(assetPath: String) {
+            val children = am.list(assetPath)
+            if (children.isNullOrEmpty()) {
+                val rel = assetPath.removePrefix("$prefix/").removePrefix(prefix)
+                if (rel.isNotEmpty() && rel != assetPath) {
+                    copyFile(assetPath, File(target, rel))
+                }
+                return
+            }
+            for (c in children) {
+                walk("$assetPath/$c")
+            }
+        }
+        walk(prefix)
+        Log.i(TAG, "assets extract files=${target.walkTopDown().count { it.isFile }}")
+    }
+
+    /** 官方 tar 顶层常有同名目录，若只有一层子目录则上提 */
+    private fun flattenSingleChildDir(dir: File) {
+        val children = dir.listFiles() ?: return
+        if (children.size == 1 && children[0].isDirectory) {
+            val inner = children[0]
+            val tmp = File(dir.parentFile, dir.name + ".flat")
+            if (tmp.exists()) tmp.deleteRecursively()
+            inner.renameTo(tmp)
+            dir.deleteRecursively()
+            tmp.renameTo(dir)
+            Log.i(TAG, "flattened nested dir -> $dir")
+        }
     }
 
     private fun downloadFile(

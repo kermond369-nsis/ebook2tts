@@ -142,7 +142,7 @@ class LocalSettingsActivity : AppCompatActivity() {
         progressBar.visibility = View.VISIBLE
         progressBar.isIndeterminate = false
         progressBar.progress = 0
-        progressText.text = "Starting…"
+        progressText.text = "开始…"
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) {
@@ -153,15 +153,15 @@ class LocalSettingsActivity : AppCompatActivity() {
                         }
                     }
                 }
-                Toast.makeText(this@LocalSettingsActivity, "Model ready", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@LocalSettingsActivity, "模型已就绪", Toast.LENGTH_SHORT).show()
             } catch (t: Throwable) {
-                android.util.Log.e("LocalSettings", "download failed", t)
+                android.util.Log.e("LocalSettings", "install failed", t)
                 Toast.makeText(
                     this@LocalSettingsActivity,
-                    "Download failed: ${t.message}",
+                    "失败：${t.message}",
                     Toast.LENGTH_LONG
                 ).show()
-                progressText.text = "Error: ${t.message}"
+                progressText.text = "错误：${t.message}"
             } finally {
                 downloading = false
                 bindUi()
@@ -203,14 +203,14 @@ class LocalSettingsActivity : AppCompatActivity() {
     private fun testSpeak() {
         val sample = "书声本地测试。林晓站定，说道：“我答应过的事，就一定会做。”" +
             "周远靠在墙边：“你终于来了。”"
-        Toast.makeText(this, "Synthesizing…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "正在合成…", Toast.LENGTH_SHORT).show()
         tts?.shutdown()
         tts = android.speech.tts.TextToSpeech(
             this,
             { status ->
                 if (status != android.speech.tts.TextToSpeech.SUCCESS) {
                     runOnUiThread {
-                        Toast.makeText(this, "TTS init failed: $status", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "TTS 初始化失败 $status", Toast.LENGTH_LONG).show()
                     }
                     return@TextToSpeech
                 }
