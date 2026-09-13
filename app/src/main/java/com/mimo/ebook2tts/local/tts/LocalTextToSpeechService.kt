@@ -104,7 +104,7 @@ class LocalTextToSpeechService : TextToSpeechService() {
             return
         }
 
-        Log.i(TAG, "pcm ready bytes=${result.pcm.size} sr=${result.sampleRate}")
+        Log.i(TAG, "pcm ready bytes=${result.pcm.size} sr=${result.sampleRate} voice=${result.voiceId} sp=${result.speakerId}")
         callback.start(result.sampleRate, AudioFormat.ENCODING_PCM_16BIT, 1)
 
         // Android SynthesisCallback 每次 maxBufferSize 有限，分块写

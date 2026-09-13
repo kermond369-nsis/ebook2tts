@@ -21,6 +21,14 @@ class TextAnalyzer(
         val styleTag: String,
     )
 
+    /** 一段可朗读单元：对白或旁白 */
+    data class SpeakUnit(
+        val speakerId: String,
+        val text: String,
+        val emotion: Emotion,
+        val isDialogue: Boolean,
+    )
+
     private val knownSpeakers = linkedSetOf<String>()
     private val speakerLines = linkedMapOf<String, MutableList<String>>()
     private var lastSpeaker: String = SpeakerIds.NARRATOR
@@ -107,6 +115,86 @@ class TextAnalyzer(
             styleTag = emotion.styleTag,
         )
     }
+
+    /**
+     * 拆成「对白 / 旁白 / 对白…」多段，避免整段只念第一处引号。
+     * 例：“我鄙视你…”庞博看了看…道：“凭着男人的直觉…”
+     */
+    fun analyzeSegments(raw: String): List<SpeakUnit> {
+        val text = TextClean.normalize(raw)
+        if (text.isEmpty() || TextClean.isJunkLine(text)) return emptyList()
+
+        val quoteRe = Regex("[“\"]([^”\"]+)[”\"]")
+        val quotes = quoteRe.findAll(text).toList()
+        if (quotes.isEmpty()) {
+            val a = analyze(raw)
+            return if (a.speakText.isBlank()) emptyList()
+            else listOf(
+                SpeakUnit(a.speakerId, a.speakText, a.emotion, isDialogue = false)
+            )
+        }
+
+        val units = mutableListOf<SpeakUnit>()
+        var cursor = 0
+        // 整段说话人提示：引号后 XX…道：
+        val wholeSpeaker = guessSpeaker(text)
+
+        for (m in quotes) {
+            val qStart = m.range.first
+            val qEnd = m.range.last + 1
+            val inner = m.groupValues[1].trim()
+
+            // 引号前的旁白/提示语
+            val before = text.substring(cursor, qStart).trim()
+            if (before.isNotEmpty() && hasCjkOrWord(before)) {
+                units.add(
+                    SpeakUnit(
+                        speakerId = SpeakerIds.NARRATOR,
+                        text = TextClean.normalize(before),
+                        emotion = Emotion.CALM,
+                        isDialogue = false,
+                    )
+                )
+            }
+
+            if (inner.isNotEmpty() && hasCjkOrWord(inner)) {
+                val sp = wholeSpeaker
+                    ?: guessSpeaker(text.substring(qStart, minOf(text.length, qEnd + 24)))
+                    ?: lastSpeaker.takeIf { it != SpeakerIds.NARRATOR }
+                    ?: SpeakerIds.NARRATOR
+                if (sp != SpeakerIds.NARRATOR) {
+                    knownSpeakers += sp
+                    speakerLines.getOrPut(sp) { mutableListOf() }.add(text)
+                    lastSpeaker = sp
+                }
+                val emo = if (emotionEnabled && sp != SpeakerIds.NARRATOR) {
+                    detectEmotion(inner).also { lastEmotion = it }
+                } else Emotion.CALM
+                units.add(
+                    SpeakUnit(sp, TextClean.forTts(inner), emo, isDialogue = true)
+                )
+            }
+            cursor = qEnd
+        }
+
+        // 末尾剩余旁白
+        val tail = text.substring(cursor).trim()
+        if (tail.isNotEmpty() && hasCjkOrWord(tail)) {
+            units.add(
+                SpeakUnit(
+                    speakerId = SpeakerIds.NARRATOR,
+                    text = TextClean.normalize(tail),
+                    emotion = Emotion.CALM,
+                    isDialogue = false,
+                )
+            )
+        }
+
+        return units
+    }
+
+    private fun hasCjkOrWord(s: String): Boolean =
+        Regex("[一-龥A-Za-z0-9]").containsMatchIn(s)
 
     fun resetSession() {
         lastSpeaker = SpeakerIds.NARRATOR

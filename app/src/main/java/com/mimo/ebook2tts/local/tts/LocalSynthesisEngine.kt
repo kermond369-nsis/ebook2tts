@@ -7,6 +7,7 @@ import com.mimo.ebook2tts.local.analysis.CharacterRegistry
 import com.mimo.ebook2tts.local.analysis.NovelTextBuffer
 import com.mimo.ebook2tts.local.analysis.SpeakerIds
 import com.mimo.ebook2tts.local.analysis.TextAnalyzer
+import com.mimo.ebook2tts.local.analysis.TextClean
 import com.mimo.ebook2tts.local.buffer.SegmentCache
 import com.mimo.ebook2tts.local.model.ModelCatalog
 import com.mimo.ebook2tts.local.model.ModelDownloader
@@ -136,32 +137,60 @@ class LocalSynthesisEngine(context: Context) {
 
     fun synthesize(raw: String): SynthResult? {
         if (stopped.get()) return null
-        val analysis = analyzer.analyze(raw)
-        if (analysis.speakText.isBlank()) return null
 
-        textBuffer.append(analysis.text)
-        if (analysis.speakerId != SpeakerIds.NARRATOR) {
+        textBuffer.append(TextClean.normalize(raw))
+        val units = analyzer.analyzeSegments(raw)
+        if (units.isEmpty()) return null
+
+        // 新角色出现时刷新音色表
+        if (units.any { it.speakerId != SpeakerIds.NARRATOR }) {
             rebuildCast()
         }
 
-        val voice = synchronized(castLock) {
-            cast[analysis.speakerId] ?: cast[SpeakerIds.NARRATOR]
-        } ?: LocalVoice.KOKORO_ZH.last()
+        val eng = backend ?: return null
+        val sr = eng.sampleRate
+        val gapBytes = sr * 2 * 120 / 1000
+        val out = java.io.ByteArrayOutputStream(raw.length * 400)
+        var firstSpeaker = SpeakerIds.NARRATOR
+        var firstVoiceId = ""
+        var firstEmotionId = "calm"
 
-        val speed = LocalPrefs.speed(appContext) * analysis.emotion.rateMul
-        val key = cacheKey(analysis.speakText, voice.id, analysis.emotion.id, speed)
-        cache.get(key)?.let {
-            return SynthResult(it.pcm, it.sampleRate, analysis.speakerId, voice.id, analysis.emotion.id)
+        Log.i(TAG, "units=${units.size} model=${LocalPrefs.modelId(appContext)} backend=${LocalPrefs.backend(appContext)}")
+
+        for ((idx, u) in units.withIndex()) {
+            if (stopped.get()) break
+            val voice = synchronized(castLock) {
+                cast[u.speakerId] ?: cast[SpeakerIds.NARRATOR]
+            } ?: LocalVoice.KOKORO_ZH.last()
+            val speed = LocalPrefs.speed(appContext) * u.emotion.rateMul
+            val key = cacheKey(u.text, voice.id, u.emotion.id, speed)
+
+            if (idx == 0) {
+                firstSpeaker = u.speakerId
+                firstVoiceId = voice.id
+                firstEmotionId = u.emotion.id
+            }
+
+            val cached = cache.get(key)
+            val pcm = cached?.pcm ?: synthesizeSplit(u.text, voice.speakerId, speed, sr)
+            Log.i(
+                TAG,
+                "unit[$idx] sp=${u.speakerId} voice=${voice.id} sid=${voice.speakerId} dlg=${u.isDialogue} len=${u.text.length} pcm=${pcm.size}"
+            )
+            if (pcm.isEmpty()) continue
+            if (cached == null) {
+                cache.put(key, SegmentCache.Entry(pcm, sr, 1))
+            }
+            if (out.size() > 0) out.write(ByteArray(gapBytes))
+            out.write(pcm)
         }
 
-        val eng = backend ?: return null
-        val pcm = synthesizeSplit(analysis.speakText, voice.speakerId, speed, eng.sampleRate)
-        if (pcm.isEmpty()) {
-            Log.w(TAG, "empty pcm speaker=${analysis.speakerId} voice=${voice.id}")
+        val all = out.toByteArray()
+        if (all.isEmpty()) {
+            Log.w(TAG, "empty pcm units=${units.size}")
             return null
         }
-        cache.put(key, SegmentCache.Entry(pcm, eng.sampleRate, 1))
-        return SynthResult(pcm, eng.sampleRate, analysis.speakerId, voice.id, analysis.emotion.id)
+        return SynthResult(all, sr, firstSpeaker, firstVoiceId, firstEmotionId)
     }
 
     fun release() {
