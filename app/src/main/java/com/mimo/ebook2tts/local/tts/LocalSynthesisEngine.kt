@@ -48,8 +48,14 @@ class LocalSynthesisEngine(context: Context) {
     private val registry = CharacterRegistry(appContext)
     private val castLock = Any()
     private val stopped = AtomicBoolean(false)
+    private val backendReady = java.util.concurrent.CountDownLatch(1)
 
     fun registry(): CharacterRegistry = registry
+
+    /** 等待 initBackend 完成（模型加载可能要数秒） */
+    fun awaitBackend(timeoutMs: Long = 30_000): Boolean {
+        return backendReady.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+    }
 
     fun initBackend() {
         val mode = LocalPrefs.Backend.byId(LocalPrefs.backend(appContext))
@@ -61,25 +67,29 @@ class LocalSynthesisEngine(context: Context) {
                     val b = SherpaBackend(appContext, spec, LocalPrefs.numThreads(appContext))
                     if (b.isReady()) {
                         voicePool = LocalVoice.poolForModel(spec.id, b.numSpeakers())
-                        Log.i(TAG, "sherpa ready speakers=${b.numSpeakers()} sr=${b.sampleRate}")
+                        Log.i(TAG, "sherpa ready model=${spec.id} speakers=${b.numSpeakers()} sr=${b.sampleRate}")
                         b
                     } else {
-                        Log.e(TAG, "sherpa not ready: ${b.lastError()} fallback system")
+                        // 不回退系统 TTS：失败就是失败
+                        Log.e(TAG, "sherpa not ready: ${b.lastError()}")
                         b.release()
                         null
                     }
                 } else {
-                    Log.w(TAG, "model not downloaded, fallback system")
+                    Log.e(TAG, "model not downloaded: ${spec.id}")
                     null
                 }
             }
-            LocalPrefs.Backend.SYSTEM -> null
+            LocalPrefs.Backend.SYSTEM -> {
+                Log.w(TAG, "system backend selected explicitly")
+                SystemTtsBackend(appContext).also { voicePool = LocalVoice.VITS_ZH_LL }
+            }
         }
         if (backend == null) {
-            backend = SystemTtsBackend(appContext)
-            voicePool = LocalVoice.VITS_ZH_LL
+            Log.e(TAG, "NO backend available — synthesis will be silent")
         }
         rebuildCast()
+        backendReady.countDown()
     }
 
     fun onPrefsChanged() {
@@ -137,6 +147,14 @@ class LocalSynthesisEngine(context: Context) {
 
     fun synthesize(raw: String): SynthResult? {
         if (stopped.get()) return null
+        if (!awaitBackend(30_000)) {
+            Log.e(TAG, "backend not ready after 30s")
+            return null
+        }
+        if (backend == null) {
+            Log.e(TAG, "backend is null, cannot synthesize")
+            return null
+        }
 
         textBuffer.append(TextClean.normalize(raw))
         val units = analyzer.analyzeSegments(raw)

@@ -39,5 +39,25 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- 系统 TTS 设置「播放」依赖这两个 action -->
+        <activity
+            android:name=".ui.CheckTtsDataActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.speech.tts.engine.CHECK_TTS_DATA" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".ui.GetSampleTextActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.speech.tts.engine.GET_SAMPLE_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

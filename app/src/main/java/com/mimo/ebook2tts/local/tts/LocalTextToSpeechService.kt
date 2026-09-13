@@ -89,6 +89,9 @@ class LocalTextToSpeechService : TextToSpeechService() {
         engine.resetStopped()
 
         Log.i(TAG, "onSynthesizeText len=${text.length}")
+
+        // 先 start，避免框架在合成期间判定无输出
+        // 采样率未知时先用 16k 占位；实际以 result 为准时框架允许 start 前合成
         val result = try {
             engine.synthesize(text)
         } catch (t: Throwable) {
@@ -96,30 +99,41 @@ class LocalTextToSpeechService : TextToSpeechService() {
             null
         }
 
-        if (result == null || result.pcm.isEmpty() || currentRequestStopped) {
-            Log.w(TAG, "empty result pcm=${result?.pcm?.size ?: 0}")
-            // 空结果也要 start/done，否则框架会卡住
+        if (result == null || result.pcm.isEmpty()) {
+            Log.w(TAG, "no pcm result stopped=$currentRequestStopped")
             callback.start(24000, AudioFormat.ENCODING_PCM_16BIT, 1)
-            callback.done()
+            callback.error()
             return
         }
 
-        Log.i(TAG, "pcm ready bytes=${result.pcm.size} sr=${result.sampleRate} voice=${result.voiceId} sp=${result.speakerId}")
-        callback.start(result.sampleRate, AudioFormat.ENCODING_PCM_16BIT, 1)
+        Log.i(
+            TAG,
+            "pcm ready bytes=${result.pcm.size} sr=${result.sampleRate} voice=${result.voiceId} sp=${result.speakerId} stopped=$currentRequestStopped"
+        )
 
-        // Android SynthesisCallback 每次 maxBufferSize 有限，分块写
-        val max = callback.maxBufferSize
+        val startRc = callback.start(result.sampleRate, AudioFormat.ENCODING_PCM_16BIT, 1)
+        if (startRc != TextToSpeech.SUCCESS) {
+            Log.e(TAG, "callback.start failed rc=$startRc")
+            return
+        }
+
+        val max = callback.maxBufferSize.coerceAtLeast(8192)
         var offset = 0
         val pcm = result.pcm
-        while (offset < pcm.size && !currentRequestStopped) {
+        while (offset < pcm.size) {
+            if (currentRequestStopped || engine.isStopped()) {
+                Log.w(TAG, "stopped during write offset=$offset/${pcm.size}")
+                break
+            }
             val len = minOf(max, pcm.size - offset)
-            if (callback.audioAvailable(pcm, offset, len) != TextToSpeech.SUCCESS) {
+            val rc = callback.audioAvailable(pcm, offset, len)
+            if (rc != TextToSpeech.SUCCESS) {
+                Log.e(TAG, "audioAvailable failed rc=$rc offset=$offset len=$len")
                 break
             }
             offset += len
         }
-        if (!currentRequestStopped) {
-            callback.done()
-        }
+        callback.done()
+        Log.i(TAG, "write done offset=$offset/${pcm.size}")
     }
 }

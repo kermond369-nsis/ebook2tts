@@ -182,13 +182,41 @@ class LocalSettingsActivity : AppCompatActivity() {
             .show()
     }
 
+    private var tts: android.speech.tts.TextToSpeech? = null
+
     private fun testSpeak() {
-        Toast.makeText(
+        val sample = "书声本地测试。林晓站定，说道：“我答应过的事，就一定会做。”" +
+            "周远靠在墙边：“你终于来了。”"
+        Toast.makeText(this, "正在合成…", Toast.LENGTH_SHORT).show()
+        tts?.shutdown()
+        tts = android.speech.tts.TextToSpeech(
             this,
-            "请在系统 TTS 设置中选「书声本地」并点朗读测试，或用小说软件试听",
-            Toast.LENGTH_LONG
-        ).show()
-        startActivity(Intent(ACTION_TTS_SETTINGS))
+            { status ->
+                if (status != android.speech.tts.TextToSpeech.SUCCESS) {
+                    runOnUiThread {
+                        Toast.makeText(this, "TTS 初始化失败 status=$status", Toast.LENGTH_LONG).show()
+                    }
+                    return@TextToSpeech
+                }
+                tts?.setLanguage(java.util.Locale.SIMPLIFIED_CHINESE)
+                val rc = tts?.speak(
+                    sample,
+                    android.speech.tts.TextToSpeech.QUEUE_FLUSH,
+                    null,
+                    "local-test"
+                )
+                runOnUiThread {
+                    Toast.makeText(this, "speak rc=$rc", Toast.LENGTH_SHORT).show()
+                }
+            },
+            packageName
+        )
+    }
+
+    override fun onDestroy() {
+        tts?.shutdown()
+        tts = null
+        super.onDestroy()
     }
 
     private fun simpleSeek(onChange: (Int) -> Unit) = object : SeekBar.OnSeekBarChangeListener {
