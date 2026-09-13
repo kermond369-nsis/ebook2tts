@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import com.mimo.ebook2tts.local.LocalPrefs
 import com.mimo.ebook2tts.local.analysis.CharacterRegistry
-import com.mimo.ebook2tts.local.analysis.Emotion
 import com.mimo.ebook2tts.local.analysis.NovelTextBuffer
 import com.mimo.ebook2tts.local.analysis.SpeakerIds
 import com.mimo.ebook2tts.local.analysis.TextAnalyzer
@@ -20,13 +19,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 1. 文本进滚动缓存
  * 2. 机械分析说话人/情绪
  * 3. 角色 → 本地音色分配
- * 4. SherpaONNX 或 系统 TTS 合成
+ * 4. 分句合成 + 句间静音
  */
 class LocalSynthesisEngine(context: Context) {
-
-    companion object {
-        private const val TAG = "LocalSynthEngine"
-    }
 
     private val appContext = context.applicationContext
 
@@ -63,9 +58,15 @@ class LocalSynthesisEngine(context: Context) {
                 val spec = ModelCatalog.byId(LocalPrefs.modelId(appContext))
                 if (ModelDownloader.isReady(appContext, spec)) {
                     val b = SherpaBackend(appContext, spec, LocalPrefs.numThreads(appContext))
-                    voicePool = LocalVoice.poolForModel(spec.id, b.numSpeakers())
-                    if (!b.isReady()) Log.e(TAG, "sherpa not ready: ${b.lastError()}")
-                    b
+                    if (b.isReady()) {
+                        voicePool = LocalVoice.poolForModel(spec.id, b.numSpeakers())
+                        Log.i(TAG, "sherpa ready speakers=${b.numSpeakers()} sr=${b.sampleRate}")
+                        b
+                    } else {
+                        Log.e(TAG, "sherpa not ready: ${b.lastError()} fallback system")
+                        b.release()
+                        null
+                    }
                 } else {
                     Log.w(TAG, "model not downloaded, fallback system")
                     null
@@ -154,7 +155,7 @@ class LocalSynthesisEngine(context: Context) {
         }
 
         val eng = backend ?: return null
-        val pcm = eng.synthesize(analysis.speakText, voice.speakerId, speed)
+        val pcm = synthesizeSplit(analysis.speakText, voice.speakerId, speed, eng.sampleRate)
         if (pcm.isEmpty()) {
             Log.w(TAG, "empty pcm speaker=${analysis.speakerId} voice=${voice.id}")
             return null
@@ -171,5 +172,58 @@ class LocalSynthesisEngine(context: Context) {
     private fun cacheKey(text: String, voice: String, emotion: String, speed: Float): String {
         val s = String.format("%.2f", speed)
         return "$voice|$emotion|$s|$text"
+    }
+
+    /** 分句合成 + 120ms 句间静音，避免整段赶读 */
+    private fun synthesizeSplit(
+        text: String,
+        speakerId: Int,
+        speed: Float,
+        sampleRate: Int,
+    ): ByteArray {
+        val eng = backend ?: return ByteArray(0)
+        val sentences = splitSentences(text)
+        Log.i(TAG, "split into ${sentences.size} sentences, len=${text.length}")
+        if (sentences.isEmpty()) return ByteArray(0)
+        if (sentences.size == 1) return eng.synthesize(sentences[0], speakerId, speed)
+
+        val gapBytes = (sampleRate * 2 * 120 / 1000)
+        val out = java.io.ByteArrayOutputStream(text.length * 400)
+        for ((i, s) in sentences.withIndex()) {
+            if (stopped.get()) break
+            val pcm = eng.synthesize(s, speakerId, speed)
+            if (pcm.isNotEmpty()) {
+                out.write(pcm)
+                if (i < sentences.size - 1) {
+                    out.write(ByteArray(gapBytes))
+                }
+            }
+        }
+        return out.toByteArray()
+    }
+
+    companion object {
+        private const val TAG = "LocalSynthEngine"
+        private val SENTENCE_END = Regex("(?<=[。！？；…!?;])")
+
+        internal fun splitSentences(text: String): List<String> {
+            val cleaned = text.trim()
+            if (cleaned.isEmpty()) return emptyList()
+            val parts = cleaned.split(SENTENCE_END)
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+            if (parts.isEmpty()) return listOf(cleaned)
+            val merged = mutableListOf<String>()
+            for (p in parts) {
+                val short = p.length < 6 &&
+                    !p.endsWith("。") && !p.endsWith("！") && !p.endsWith("？")
+                if (short && merged.isNotEmpty() && merged.last().length + p.length <= 80) {
+                    merged[merged.size - 1] = merged.last() + p
+                } else {
+                    merged.add(p)
+                }
+            }
+            return merged
+        }
     }
 }

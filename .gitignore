@@ -13,3 +13,6 @@
 
 # local test scratch (models, dumps)
 _test/
+
+# local build helper (contains LAN host paths)
+build_on_hermes.sh

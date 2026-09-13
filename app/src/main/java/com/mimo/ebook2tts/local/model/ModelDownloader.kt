@@ -62,20 +62,24 @@ object ModelDownloader {
 
         if (isReady(context, spec)) return@withContext target
 
-        val urls = listOf(spec.primaryUrl, spec.mirrorUrl)
+        // 国内优先 hf-mirror
+        val urls = listOf(spec.mirrorUrl, spec.primaryUrl)
         var lastErr: Exception? = null
         for (url in urls) {
             try {
-                onProgress(0f, "连接…")
+                onProgress(0f, "连接 $url")
                 downloadFile(url, archive) { p, msg -> onProgress(p * 0.85f, msg) }
                 lastErr = null
                 break
             } catch (e: Exception) {
                 Log.w(TAG, "download failed: $url", e)
                 lastErr = e
+                onProgress(0f, "该源失败，尝试备用…")
             }
         }
-        if (lastErr != null) throw lastErr
+        if (lastErr != null) {
+            throw IllegalStateException("下载失败：${lastErr.message}", lastErr)
+        }
 
         onProgress(0.86f, "解压中…")
         if (target.exists()) target.deleteRecursively()

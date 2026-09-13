@@ -28,8 +28,9 @@ class SystemTtsBackend(context: Context) : LocalTtsBackend {
     @Volatile
     private var ready = false
 
+    // 机械音默认略放慢，减轻“赶/喘不上气”感
     private val pitchTable = floatArrayOf(1.0f, 1.15f, 0.85f, 1.25f, 0.75f, 1.05f, 0.9f, 1.2f)
-    private val rateTable = floatArrayOf(1.0f, 1.05f, 0.92f, 1.08f, 0.9f, 1.0f, 0.95f, 1.02f)
+    private val rateTable = floatArrayOf(0.88f, 0.92f, 0.82f, 0.95f, 0.80f, 0.88f, 0.85f, 0.90f)
 
     init {
         tts = TextToSpeech(appContext) { status ->
