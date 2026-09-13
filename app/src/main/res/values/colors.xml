@@ -6,4 +6,5 @@
     <color name="accent">#7DCEA0</color>
     <color name="card">#1A2332</color>
     <color name="card_stroke">#2A3548</color>
+    <color name="error">#FFB4AB</color>
 </resources>

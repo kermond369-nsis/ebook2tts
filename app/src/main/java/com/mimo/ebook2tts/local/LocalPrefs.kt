@@ -4,7 +4,10 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.mimo.ebook2tts.local.model.ModelCatalog
 
-/** 本地版设置。无需 API Key。 */
+/**
+ * 本地版设置。无需 API Key。
+ * 关键键变更会触发 onEnginePrefsChanged，供 TTS 服务热重载。
+ */
 object LocalPrefs {
     private const val NAME = "ebook2tts_local_prefs"
 
@@ -18,48 +21,73 @@ object LocalPrefs {
     private const val KEY_BUFFER = "buffer_size"
     private const val KEY_CUSTOM_URL_PREFIX = "custom_url_"
 
+    /** 进程内变更回调（安装模型 / 切换后端 / 改旁白等） */
+    @Volatile
+    var onEnginePrefsChanged: (() -> Unit)? = null
+
+    fun prefs(c: Context): SharedPreferences =
+        c.applicationContext.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+
+    private fun notifyChanged() {
+        try {
+            onEnginePrefsChanged?.invoke()
+        } catch (_: Throwable) {
+        }
+    }
+
     fun customUrl(c: Context, modelId: String): String =
         prefs(c).getString(KEY_CUSTOM_URL_PREFIX + modelId, "") ?: ""
 
     fun setCustomUrl(c: Context, modelId: String, url: String) =
         prefs(c).edit().putString(KEY_CUSTOM_URL_PREFIX + modelId, url.trim()).apply()
 
-    fun prefs(c: Context): SharedPreferences =
-        c.applicationContext.getSharedPreferences(NAME, Context.MODE_PRIVATE)
-
     fun backend(c: Context): String =
         prefs(c).getString(KEY_BACKEND, Backend.SHERPA.id) ?: Backend.SHERPA.id
 
-    fun setBackend(c: Context, v: String) = prefs(c).edit().putString(KEY_BACKEND, v).apply()
+    fun setBackend(c: Context, v: String) {
+        prefs(c).edit().putString(KEY_BACKEND, v).apply()
+        notifyChanged()
+    }
 
     fun modelId(c: Context): String =
         prefs(c).getString(KEY_MODEL_ID, ModelCatalog.DEFAULT_ID) ?: ModelCatalog.DEFAULT_ID
 
-    fun setModelId(c: Context, v: String) = prefs(c).edit().putString(KEY_MODEL_ID, v).apply()
+    fun setModelId(c: Context, v: String) {
+        prefs(c).edit().putString(KEY_MODEL_ID, v).apply()
+        notifyChanged()
+    }
 
     fun narratorVoice(c: Context): String =
         prefs(c).getString(KEY_NARRATOR_VOICE, "zm_058") ?: "zm_058"
 
-    fun setNarratorVoice(c: Context, v: String) =
+    fun setNarratorVoice(c: Context, v: String) {
         prefs(c).edit().putString(KEY_NARRATOR_VOICE, v).apply()
+        notifyChanged()
+    }
 
     fun smartCharacter(c: Context): Boolean =
         prefs(c).getBoolean(KEY_SMART_CHARACTER, true)
 
-    fun setSmartCharacter(c: Context, v: Boolean) =
+    fun setSmartCharacter(c: Context, v: Boolean) {
         prefs(c).edit().putBoolean(KEY_SMART_CHARACTER, v).apply()
+        notifyChanged()
+    }
 
     fun emotionEnabled(c: Context): Boolean =
         prefs(c).getBoolean(KEY_EMOTION, true)
 
-    fun setEmotionEnabled(c: Context, v: Boolean) =
+    fun setEmotionEnabled(c: Context, v: Boolean) {
         prefs(c).edit().putBoolean(KEY_EMOTION, v).apply()
+        notifyChanged()
+    }
 
     fun numThreads(c: Context): Int =
         prefs(c).getInt(KEY_NUM_THREADS, 2).coerceIn(1, 4)
 
-    fun setNumThreads(c: Context, v: Int) =
+    fun setNumThreads(c: Context, v: Int) {
         prefs(c).edit().putInt(KEY_NUM_THREADS, v.coerceIn(1, 4)).apply()
+        notifyChanged()
+    }
 
     fun speed(c: Context): Float =
         prefs(c).getFloat(KEY_SPEED, 1.0f).coerceIn(0.5f, 2.0f)
@@ -75,7 +103,7 @@ object LocalPrefs {
 
     enum class Backend(val id: String, val label: String) {
         SHERPA("sherpa", "本地模型（SherpaONNX）"),
-        SYSTEM("system", "系统 TTS（机械音兜底）");
+        SYSTEM("system", "使用系统自带语音（备用）");
 
         companion object {
             fun byId(id: String?): Backend =

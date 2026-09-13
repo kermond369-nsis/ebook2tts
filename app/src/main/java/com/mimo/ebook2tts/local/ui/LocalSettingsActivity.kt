@@ -69,9 +69,7 @@ class LocalSettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnDownload).setOnClickListener { downloadModel() }
         findViewById<Button>(R.id.btnDeleteModel).setOnClickListener { deleteModel() }
         findViewById<Button>(R.id.btnPickNarrator).setOnClickListener { pickNarrator() }
-        findViewById<Button>(R.id.btnOpenTtsSettings).setOnClickListener {
-            startActivity(Intent(ACTION_TTS_SETTINGS))
-        }
+        findViewById<Button>(R.id.btnOpenTtsSettings).setOnClickListener { openTtsSettings() }
         findViewById<Button>(R.id.btnTest).setOnClickListener { testSpeak() }
 
         backendGroup.setOnCheckedChangeListener { _, checkedId ->
@@ -133,8 +131,31 @@ class LocalSettingsActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun openTtsSettings() {
+        val candidates = listOf(
+            Intent(ACTION_TTS_SETTINGS),
+            Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS),
+            Intent(android.provider.Settings.ACTION_SETTINGS),
+        )
+        for (i in candidates) {
+            try {
+                startActivity(i)
+                return
+            } catch (_: android.content.ActivityNotFoundException) {
+            }
+        }
+        Toast.makeText(
+            this,
+            "请到 系统设置 → 无障碍/语言 → 文字转语音，选择「书声本地」",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
     private fun downloadModel() {
-        if (downloading) return
+        if (downloading) {
+            Toast.makeText(this, "正在安装中，请稍候", Toast.LENGTH_SHORT).show()
+            return
+        }
         val spec = ModelCatalog.byId(selectedModelId)
         val custom = editCustomUrl.text?.toString().orEmpty()
         LocalPrefs.setCustomUrl(this, spec.id, custom)
@@ -170,6 +191,10 @@ class LocalSettingsActivity : AppCompatActivity() {
     }
 
     private fun deleteModel() {
+        if (downloading) {
+            Toast.makeText(this, "安装中无法删除", Toast.LENGTH_SHORT).show()
+            return
+        }
         val spec = ModelCatalog.byId(selectedModelId)
         AlertDialog.Builder(this)
             .setTitle(R.string.btn_delete)
@@ -177,7 +202,11 @@ class LocalSettingsActivity : AppCompatActivity() {
             .setPositiveButton(R.string.btn_delete) { _, _ ->
                 lifecycleScope.launch(Dispatchers.IO) {
                     ModelDownloader.delete(this@LocalSettingsActivity, spec)
-                    withContext(Dispatchers.Main) { bindUi() }
+                    withContext(Dispatchers.Main) {
+                        LocalPrefs.setBackend(this@LocalSettingsActivity, LocalPrefs.backend(this@LocalSettingsActivity))
+                        bindUi()
+                        Toast.makeText(this@LocalSettingsActivity, "已删除", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)

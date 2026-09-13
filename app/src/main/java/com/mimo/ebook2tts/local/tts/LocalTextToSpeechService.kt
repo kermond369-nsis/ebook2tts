@@ -5,14 +5,15 @@ import android.speech.tts.SynthesisCallback
 import android.speech.tts.SynthesisRequest
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
+import android.speech.tts.Voice
 import android.util.Log
+import com.mimo.ebook2tts.local.LocalPrefs
 import com.mimo.ebook2tts.local.analysis.TextClean
-import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
+import com.mimo.ebook2tts.local.voice.LocalVoice
+import java.util.Locale
 
 /**
- * 本地标准 TTS 引擎。小说软件通过 TextToSpeech 绑定即可多角色朗读。
+ * 本地标准 TTS 引擎。
  * applicationId: com.mimo.ebook2tts.local
  */
 class LocalTextToSpeechService : TextToSpeechService() {
@@ -26,11 +27,19 @@ class LocalTextToSpeechService : TextToSpeechService() {
     @Volatile
     private var currentRequestStopped = false
 
-    private val producer = AtomicReference<Thread?>(null)
-
     override fun onCreate() {
         super.onCreate()
         engine = LocalSynthesisEngine(applicationContext)
+        LocalPrefs.onEnginePrefsChanged = {
+            Log.i(TAG, "prefs changed → reload backend")
+            Thread {
+                try {
+                    engine.onPrefsChanged()
+                } catch (t: Throwable) {
+                    Log.e(TAG, "prefs reload failed", t)
+                }
+            }.start()
+        }
         Thread {
             try {
                 engine.initBackend()
@@ -43,8 +52,8 @@ class LocalTextToSpeechService : TextToSpeechService() {
 
     override fun onDestroy() {
         currentRequestStopped = true
+        LocalPrefs.onEnginePrefsChanged = null
         engine.stop()
-        producer.get()?.interrupt()
         engine.release()
         super.onDestroy()
     }
@@ -73,7 +82,33 @@ class LocalTextToSpeechService : TextToSpeechService() {
     override fun onStop() {
         currentRequestStopped = true
         engine.stop()
-        producer.get()?.interrupt()
+    }
+
+    /** 第三方 App（Legado 等）需要 Voice API 才能列出多音色 */
+    override fun onGetVoices(): List<Voice> {
+        val pool = LocalVoice.poolForModel(LocalPrefs.modelId(this))
+        return pool.map { v ->
+            Voice(
+                v.id,
+                Locale.SIMPLIFIED_CHINESE,
+                Voice.QUALITY_NORMAL,
+                Voice.LATENCY_NORMAL,
+                false,
+                mutableSetOf<String>()
+            )
+        }
+    }
+
+    override fun onIsValidVoiceName(voiceName: String?): Int {
+        if (voiceName.isNullOrBlank()) return TextToSpeech.ERROR
+        val ok = LocalVoice.poolForModel(LocalPrefs.modelId(this)).any { it.id == voiceName }
+        return if (ok) TextToSpeech.SUCCESS else TextToSpeech.ERROR
+    }
+
+    override fun onLoadVoice(voiceName: String?): Int = onIsValidVoiceName(voiceName)
+
+    override fun onGetDefaultVoiceNameFor(lang: String?, country: String?, variant: String?): String {
+        return LocalPrefs.narratorVoice(this)
     }
 
     override fun onSynthesizeText(request: SynthesisRequest, callback: SynthesisCallback) {
@@ -88,12 +123,16 @@ class LocalTextToSpeechService : TextToSpeechService() {
         currentRequestStopped = false
         engine.resetStopped()
 
-        Log.i(TAG, "onSynthesizeText len=${text.length}")
+        // 阅读器语速（request.speechRate，1000 = 1.0）
+        val readerRate = (request.speechRate / 1000f).coerceIn(0.5f, 2.5f)
+        // 显式 setVoice 覆盖自动多角色（仅非空且合法时）
+        val explicitVoice = request.voiceName?.takeIf { it.isNotBlank() }
+            ?.takeIf { onIsValidVoiceName(it) == TextToSpeech.SUCCESS }
 
-        // 先 start，避免框架在合成期间判定无输出
-        // 采样率未知时先用 16k 占位；实际以 result 为准时框架允许 start 前合成
+        Log.i(TAG, "onSynthesizeText len=${text.length} rate=$readerRate voice=$explicitVoice")
+
         val result = try {
-            engine.synthesize(text)
+            engine.synthesize(text, readerRate, explicitVoice)
         } catch (t: Throwable) {
             Log.e(TAG, "synthesize failed", t)
             null
@@ -108,7 +147,7 @@ class LocalTextToSpeechService : TextToSpeechService() {
 
         Log.i(
             TAG,
-            "pcm ready bytes=${result.pcm.size} sr=${result.sampleRate} voice=${result.voiceId} sp=${result.speakerId} stopped=$currentRequestStopped"
+            "pcm ready bytes=${result.pcm.size} sr=${result.sampleRate} voice=${result.voiceId} stopped=$currentRequestStopped"
         )
 
         val startRc = callback.start(result.sampleRate, AudioFormat.ENCODING_PCM_16BIT, 1)
@@ -134,6 +173,5 @@ class LocalTextToSpeechService : TextToSpeechService() {
             offset += len
         }
         callback.done()
-        Log.i(TAG, "write done offset=$offset/${pcm.size}")
     }
 }

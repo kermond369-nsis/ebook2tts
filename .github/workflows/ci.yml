@@ -39,6 +39,9 @@ jobs:
           sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
           yes | sdkmanager --licenses || true
 
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --no-daemon
+
       - name: Build
         run: |
           gradle :app:assembleDebug --no-daemon --stacktrace

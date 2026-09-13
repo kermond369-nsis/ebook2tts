@@ -32,7 +32,7 @@ object TextClean {
         if (s.isBlank()) return true
         if (s.startsWith("🏷") || s.startsWith("🔖") || s.startsWith("标签：")) return true
         if (s.contains("平台补贴") || s.contains("腾讯视频火热播出")) return true
-        if (s.matches(Regex("^第\\s*\\d+\\s*章.*"))) return true
+        if (s.matches(Regex("^第\\s*[0-9一二三四五六七八九十百千零两]+\\s*[章回节卷].*"))) return true
         if (s == "简介：" || s == "简介:") return true
         // 纯省略号 / 纯符号
         if (!Regex("[一-龥A-Za-z0-9]").containsMatchIn(s)) return true

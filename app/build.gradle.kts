@@ -12,7 +12,7 @@ android {
         minSdk = 24
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1.1Alpha"
+        versionName = "0.1.1-alpha"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
@@ -39,10 +39,12 @@ android {
         jniLibs {
             useLegacyPackaging = true
         }
-        // 大模型 assets 不压缩，加快首次拷贝
         resources {
             excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*")
         }
+    }
+    androidResources {
+        noCompress += listOf("onnx", "bin", "fst", "far")
     }
 }
 

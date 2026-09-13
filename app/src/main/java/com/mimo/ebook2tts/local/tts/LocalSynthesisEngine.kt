@@ -148,10 +148,14 @@ class LocalSynthesisEngine(context: Context) {
         override fun hashCode(): Int = pcm.contentHashCode() * 31 + sampleRate
     }
 
-    fun synthesize(raw: String): SynthResult? {
+    fun synthesize(
+        raw: String,
+        readerRate: Float = 1.0f,
+        explicitVoiceId: String? = null,
+    ): SynthResult? {
         if (stopped.get()) return null
-        if (!awaitBackend(30_000)) {
-            Log.e(TAG, "backend not ready after 30s")
+        if (!awaitBackend(8_000)) {
+            Log.e(TAG, "backend not ready after 8s")
             return null
         }
         if (backend == null) {
@@ -180,11 +184,18 @@ class LocalSynthesisEngine(context: Context) {
 
         for ((idx, u) in units.withIndex()) {
             if (stopped.get()) break
-            val voice = synchronized(castLock) {
-                cast[u.speakerId] ?: cast[SpeakerIds.NARRATOR]
-            } ?: voicePool.first()
-            val speed = LocalPrefs.speed(appContext) * u.emotion.rateMul
-            val key = cacheKey(u.text, voice.id, u.emotion.id, speed)
+            // 外部 App 显式 setVoice 时整段覆盖；否则自动多角色
+            val voice = if (explicitVoiceId != null) {
+                LocalVoice.byId(voicePool, explicitVoiceId)
+            } else {
+                synchronized(castLock) {
+                    cast[u.speakerId] ?: cast[SpeakerIds.NARRATOR]
+                } ?: voicePool.first()
+            }
+            val speed = (LocalPrefs.speed(appContext) * u.emotion.rateMul * readerRate)
+                .coerceIn(0.5f, 2.5f)
+            val modelId = LocalPrefs.modelId(appContext)
+            val key = cacheKey(modelId, u.text, voice.id, u.emotion.id, speed)
 
             if (idx == 0) {
                 firstSpeaker = u.speakerId
@@ -219,9 +230,9 @@ class LocalSynthesisEngine(context: Context) {
         backend = null
     }
 
-    private fun cacheKey(text: String, voice: String, emotion: String, speed: Float): String {
+    private fun cacheKey(modelId: String, text: String, voice: String, emotion: String, speed: Float): String {
         val s = String.format("%.2f", speed)
-        return "$voice|$emotion|$s|$text"
+        return "$modelId|$voice|$emotion|$s|$text"
     }
 
     /** 分句合成 + 120ms 句间静音，避免整段赶读 */

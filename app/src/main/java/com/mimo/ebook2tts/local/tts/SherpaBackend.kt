@@ -138,6 +138,12 @@ class SherpaBackend(
     }
 
     override fun release() {
+        try {
+            // SDK 提供 native 释放，避免等 GC
+            tts?.release()
+        } catch (t: Throwable) {
+            Log.w(TAG, "release failed", t)
+        }
         tts = null
     }
 

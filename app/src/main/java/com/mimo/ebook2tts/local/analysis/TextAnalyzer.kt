@@ -136,15 +136,13 @@ class TextAnalyzer(
 
         val units = mutableListOf<SpeakUnit>()
         var cursor = 0
-        // 整段说话人提示：引号后 XX…道：
-        val wholeSpeaker = guessSpeaker(text)
+        // 不使用 wholeSpeaker 遮蔽：每个引号用局部窗口单独猜人
 
         for (m in quotes) {
             val qStart = m.range.first
             val qEnd = m.range.last + 1
             val inner = m.groupValues[1].trim()
 
-            // 引号前的旁白/提示语
             val before = text.substring(cursor, qStart).trim()
             if (before.isNotEmpty() && hasCjkOrWord(before)) {
                 units.add(
@@ -158,13 +156,21 @@ class TextAnalyzer(
             }
 
             if (inner.isNotEmpty() && hasCjkOrWord(inner)) {
-                val sp = wholeSpeaker
-                    ?: guessSpeaker(text.substring(qStart, minOf(text.length, qEnd + 24)))
-                    ?: lastSpeaker.takeIf { it != SpeakerIds.NARRATOR }
+                // 局部窗口：引号前 24 字 + 引号后 24 字
+                val wStart = (qStart - 24).coerceAtLeast(0)
+                val wEnd = (qEnd + 24).coerceAtMost(text.length)
+                val window = text.substring(wStart, wEnd)
+                val sp = guessSpeaker(window)
+                    ?: lastSpeaker.takeIf { it != SpeakerIds.NARRATOR && units.none { u -> u.speakerId == it && u.isDialogue } }
                     ?: SpeakerIds.NARRATOR
                 if (sp != SpeakerIds.NARRATOR) {
                     knownSpeakers += sp
-                    speakerLines.getOrPut(sp) { mutableListOf() }.add(text)
+                    speakerLines.getOrPut(sp) { mutableListOf() }.add(text.take(200))
+                    // 截断：每角色最多 30 条
+                    val lines = speakerLines[sp]!!
+                    if (lines.size > 30) {
+                        speakerLines[sp] = lines.takeLast(30).toMutableList()
+                    }
                     lastSpeaker = sp
                 }
                 val emo = if (emotionEnabled && sp != SpeakerIds.NARRATOR) {

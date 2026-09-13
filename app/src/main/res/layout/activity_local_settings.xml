@@ -117,10 +117,12 @@
 
                 <Button
                     android:id="@+id/btnPickModel"
+                    style="@style/Btn.Secondary"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="8dp"
                     android:layout_weight="1"
+                    android:maxLines="1"
                     android:text="@string/btn_pick_model" />
 
                 <Button
@@ -129,13 +131,16 @@
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="8dp"
                     android:layout_weight="1"
+                    android:maxLines="1"
                     android:text="@string/btn_download" />
 
                 <Button
                     android:id="@+id/btnDeleteModel"
+                    style="@style/Btn.Danger"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:maxLines="1"
                     android:text="@string/btn_delete" />
             </LinearLayout>
 

@@ -23,6 +23,17 @@ object ModelDownloader {
     private const val CONNECT_TIMEOUT = 15_000
     private const val READ_TIMEOUT = 180_000
 
+    /** 进程级互斥：防止并发安装写同一目录 */
+    private val installLock = Any()
+
+    fun hasEnoughSpace(context: Context, spec: ModelSpec): Boolean {
+        val root = modelRoot(context)
+        val free = root.usableSpace
+        // 下载 + 解压 ≈ 2.5× 压缩包，留余量
+        val need = spec.approxBytes * 25 / 10
+        return free >= need
+    }
+
     fun modelRoot(context: Context): File =
         File(context.applicationContext.filesDir, "models").apply { mkdirs() }
 
@@ -74,24 +85,46 @@ object ModelDownloader {
         customUrl: String? = null,
         onProgress: (Float, String) -> Unit,
     ): File = withContext(Dispatchers.IO) {
-        val target = modelDir(context, spec)
-        if (isReady(context, spec)) return@withContext target
+        synchronized(installLock) {
+            installLocked(context, spec, customUrl, onProgress)
+        }
+    }
 
-        // 1) assets
-        if (hasAssets(context, spec)) {
-            onProgress(0.1f, "Extracting bundled model…")
-            extractFromAssets(context, spec, target)
-            onProgress(1f, "Ready from APK assets")
-            if (!isReady(context, spec)) {
-                throw IllegalStateException("Bundled model incomplete: ${spec.modelName}")
-            }
-            return@withContext target
+    private fun installLocked(
+        context: Context,
+        spec: ModelSpec,
+        customUrl: String?,
+        onProgress: (Float, String) -> Unit,
+    ): File {
+        val target = modelDir(context, spec)
+        if (isReady(context, spec)) return target
+
+        if (!hasEnoughSpace(context, spec)) {
+            val freeMb = modelRoot(context).usableSpace / 1024 / 1024
+            throw IllegalStateException("磁盘空间不足（剩余 ${freeMb}MB），约需 ${formatSize(spec.approxBytes * 25 / 10)}")
         }
 
-        // 2) network
+        // assets
+        if (hasAssets(context, spec)) {
+            onProgress(0.1f, "正在从安装包解压…")
+            extractFromAssets(context, spec, target)
+            onProgress(1f, "就绪（来自安装包）")
+            if (!isReady(context, spec)) {
+                throw IllegalStateException("安装包内模型不完整：${spec.modelName}")
+            }
+            return target
+        }
+
+        // network
         val archive = File(modelRoot(context), spec.archiveName)
         val urls = buildList {
-            customUrl?.trim()?.takeIf { it.startsWith("http") }?.let { add(it) }
+            val cu = customUrl?.trim().orEmpty()
+            if (cu.isNotEmpty()) {
+                if (!cu.startsWith("https://")) {
+                    throw IllegalArgumentException("自定义链接仅支持 https://")
+                }
+                add(cu)
+            }
             add(spec.primaryUrl)
             add(spec.mirrorUrl)
         }
@@ -99,22 +132,34 @@ object ModelDownloader {
         var lastErr: Exception? = null
         for (url in urls) {
             try {
-                onProgress(0f, "Connecting…")
+                onProgress(0f, "连接中…")
                 Log.i(TAG, "GET $url")
                 downloadFile(url, archive) { p, msg -> onProgress(p * 0.85f, msg) }
+                // 粗校验：大小 + bz2 魔数
+                if (archive.length() < 1_000_000) {
+                    throw IllegalStateException("文件过小 ${archive.length()}B")
+                }
+                archive.inputStream().use { ins ->
+                    val h = ByteArray(3)
+                    if (ins.read(h) < 3 || h[0] != 'B'.code.toByte() || h[1] != 'Z'.code.toByte()) {
+                        throw IllegalStateException("不是有效的 .tar.bz2")
+                    }
+                }
                 Log.i(TAG, "downloaded ${archive.length()} bytes from $url")
                 lastErr = null
                 break
             } catch (e: Exception) {
                 Log.e(TAG, "FAIL $url: ${e.javaClass.simpleName}: ${e.message}", e)
                 lastErr = e
-                onProgress(0f, "Failed (${e.message}), trying next…")
+                onProgress(0f, "该源失败：${e.message}")
+                // 失败清理 .part / 残缺包
+                runCatching { archive.delete() }
+                File(archive.parentFile, archive.name + ".part").delete()
             }
         }
         if (lastErr != null) {
             throw IllegalStateException(
-                "All sources failed. Last: ${lastErr.message}\n" +
-                    "You can paste a custom URL (tar.bz2) in the field above.",
+                "全部下载源失败。最后错误：${lastErr.message}\n可粘贴 https 直链后重试。",
                 lastErr
             )
         }
@@ -135,7 +180,7 @@ object ModelDownloader {
         }
         Log.i(TAG, "extract ok size=${dirSize(target)}")
         onProgress(1f, "完成")
-        target
+        return target
     }
 
     /** 兼容旧调用 */

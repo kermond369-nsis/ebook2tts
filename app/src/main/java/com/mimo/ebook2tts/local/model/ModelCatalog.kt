@@ -30,8 +30,8 @@ object ModelCatalog {
     val ALL: List<ModelSpec> = listOf(
         ModelSpec(
             id = "kokoro-int8-multi-lang-v1_1",
-            label = "Kokoro int8 · zh/en multi-voice",
-            desc = "~82M params int8. Best quality/size. Bundled in APK when built with assets.",
+            label = "Kokoro int8 · 中英多音色",
+            desc = "约 8200 万参数 int8 量化。体积与质量最平衡；打包版已内置。",
             dirName = "kokoro-int8-multi-lang-v1_1",
             archiveName = "kokoro-int8-multi-lang-v1_1.tar.bz2",
             primaryUrl = "$GH/kokoro-int8-multi-lang-v1_1.tar.bz2",
@@ -46,8 +46,8 @@ object ModelCatalog {
         ),
         ModelSpec(
             id = "kokoro-multi-lang-v1_1",
-            label = "Kokoro fp32 · zh/en multi-voice",
-            desc = "~82M params fp32. Better quality, larger (~350MB archive).",
+            label = "Kokoro fp32 · 中英多音色",
+            desc = "质量更好，压缩包约 350MB。",
             dirName = "kokoro-multi-lang-v1_1",
             archiveName = "kokoro-multi-lang-v1_1.tar.bz2",
             primaryUrl = "$GH/kokoro-multi-lang-v1_1.tar.bz2",
@@ -62,8 +62,8 @@ object ModelCatalog {
         ),
         ModelSpec(
             id = "sherpa-onnx-vits-zh-ll",
-            label = "VITS zh-ll · 5 voices",
-            desc = "Tiny Chinese model, 5 voices. For low-end devices.",
+            label = "VITS 中文 · 5 音色",
+            desc = "轻量中文模型，5 个音色，适合低配设备。",
             dirName = "sherpa-onnx-vits-zh-ll",
             archiveName = "sherpa-onnx-vits-zh-ll.tar.bz2",
             primaryUrl = "$GH/sherpa-onnx-vits-zh-ll.tar.bz2",
