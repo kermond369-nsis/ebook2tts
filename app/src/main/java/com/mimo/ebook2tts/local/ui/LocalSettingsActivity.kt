@@ -187,12 +187,17 @@ class LocalSettingsActivity : AppCompatActivity() {
     private fun pickNarrator() {
         val spec = ModelCatalog.byId(selectedModelId)
         val pool = LocalVoice.poolForModel(spec.id)
-        val names = pool.map { "${it.label} (${it.kind})" }.toTypedArray()
-        val current = pool.indexOfFirst { it.id == LocalPrefs.narratorVoice(this) }.coerceAtLeast(0)
+        // 男声在前，方便旁白选沉稳男声
+        val ordered = pool.sortedWith(compareBy({ if (it.kind == "male") 0 else 1 }, { it.speakerId }))
+        val names = ordered.map {
+            val g = if (it.kind == "male") "男" else "女"
+            "${it.label}  [$g · sid=${it.speakerId}]"
+        }.toTypedArray()
+        val current = ordered.indexOfFirst { it.id == LocalPrefs.narratorVoice(this) }.coerceAtLeast(0)
         AlertDialog.Builder(this)
-            .setTitle(R.string.label_narrator)
+            .setTitle("${getString(R.string.label_narrator)}（男声在前）")
             .setSingleChoiceItems(names, current) { d, which ->
-                LocalPrefs.setNarratorVoice(this, pool[which].id)
+                LocalPrefs.setNarratorVoice(this, ordered[which].id)
                 bindUi()
                 d.dismiss()
             }
@@ -201,8 +206,7 @@ class LocalSettingsActivity : AppCompatActivity() {
     }
 
     private fun testSpeak() {
-        val sample = "书声本地测试。林晓站定，说道：“我答应过的事，就一定会做。”" +
-            "周远靠在墙边：“你终于来了。”"
+        val sample = "林晓站定，呼吸有些乱：“我答应过的事，就一定会做。”"
         Toast.makeText(this, "正在合成…", Toast.LENGTH_SHORT).show()
         tts?.shutdown()
         tts = android.speech.tts.TextToSpeech(

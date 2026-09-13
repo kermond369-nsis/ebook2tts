@@ -51,8 +51,8 @@ class TextAnalyzer(
     }
 
     private fun guessGenderFromName(name: String): String? {
-        if (Regex("[女娘姑姐妹妇妃]").containsMatchIn(name)) return "female"
-        if (Regex("[男兄弟哥父爷叔]").containsMatchIn(name)) return "male"
+        if (Regex("[女娘姑姐妹妇妃婷娜娟芳丽静雅琳雪梅兰英珍倩晓婉嫣]").containsMatchIn(name)) return "female"
+        if (Regex("[男兄弟哥父爷叔伟强军磊涛鹏浩杰明超]").containsMatchIn(name)) return "male"
         return null
     }
 
@@ -244,6 +244,10 @@ class TextAnalyzer(
             if (m != null && isPlausibleName(m.groupValues[1])) return m.groupValues[1]
 
             m = Regex("[”\"]([一-龥A-Za-z]{2,3})$AFTER_QUOTE").find(p)
+            if (m != null && isPlausibleName(m.groupValues[1])) return m.groupValues[1]
+
+            // 「林晓站定，说道：“…”」— 引号前的名字 + 说/道
+            m = Regex("([一-龥A-Za-z]{2,3})[^“\"]{0,16}(?:说道|道|问|答|说)[：:，,]?[“\"]").find(p)
             if (m != null && isPlausibleName(m.groupValues[1])) return m.groupValues[1]
 
             if (extractQuote(p) != null && known.isNotEmpty()) {

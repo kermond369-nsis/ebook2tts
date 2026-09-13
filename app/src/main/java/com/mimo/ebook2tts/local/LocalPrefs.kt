@@ -38,7 +38,7 @@ object LocalPrefs {
     fun setModelId(c: Context, v: String) = prefs(c).edit().putString(KEY_MODEL_ID, v).apply()
 
     fun narratorVoice(c: Context): String =
-        prefs(c).getString(KEY_NARRATOR_VOICE, "zm_yunyang") ?: "zm_yunyang"
+        prefs(c).getString(KEY_NARRATOR_VOICE, "zm_058") ?: "zm_058"
 
     fun setNarratorVoice(c: Context, v: String) =
         prefs(c).edit().putString(KEY_NARRATOR_VOICE, v).apply()

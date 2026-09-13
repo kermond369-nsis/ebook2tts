@@ -30,7 +30,7 @@ class LocalSynthesisEngine(context: Context) {
     private var backend: LocalTtsBackend? = null
 
     @Volatile
-    private var voicePool: List<LocalVoice> = LocalVoice.KOKORO_ZH
+    private var voicePool: List<LocalVoice> = LocalVoice.poolForModel("kokoro-int8-multi-lang-v1_1")
 
     @Volatile
     private var cast: Map<String, LocalVoice> = emptyMap()
@@ -67,7 +67,10 @@ class LocalSynthesisEngine(context: Context) {
                     val b = SherpaBackend(appContext, spec, LocalPrefs.numThreads(appContext))
                     if (b.isReady()) {
                         voicePool = LocalVoice.poolForModel(spec.id, b.numSpeakers())
-                        Log.i(TAG, "sherpa ready model=${spec.id} speakers=${b.numSpeakers()} sr=${b.sampleRate}")
+                        Log.i(
+                            TAG,
+                            "sherpa ready model=${spec.id} speakers=${b.numSpeakers()} sr=${b.sampleRate} narrator=${LocalPrefs.narratorVoice(appContext)} pool=${voicePool.size}"
+                        )
                         b
                     } else {
                         // 不回退系统 TTS：失败就是失败
@@ -179,7 +182,7 @@ class LocalSynthesisEngine(context: Context) {
             if (stopped.get()) break
             val voice = synchronized(castLock) {
                 cast[u.speakerId] ?: cast[SpeakerIds.NARRATOR]
-            } ?: LocalVoice.KOKORO_ZH.last()
+            } ?: voicePool.first()
             val speed = LocalPrefs.speed(appContext) * u.emotion.rateMul
             val key = cacheKey(u.text, voice.id, u.emotion.id, speed)
 

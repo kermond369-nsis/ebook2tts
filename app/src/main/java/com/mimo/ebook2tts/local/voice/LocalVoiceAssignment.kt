@@ -16,8 +16,10 @@ object LocalVoiceAssignment {
         cast[SpeakerIds.NARRATOR] = narrator
 
         val used = mutableSetOf(narrator.id)
-        val female = LocalVoice.femalePool(pool)
-        val male = LocalVoice.malePool(pool)
+        fun zhFirst(list: List<LocalVoice>) =
+            list.sortedBy { if (it.id.startsWith("en_")) 1 else 0 }
+        val female = zhFirst(LocalVoice.femalePool(pool))
+        val male = zhFirst(LocalVoice.malePool(pool))
         var fi = 0
         var mi = 0
 
@@ -34,8 +36,10 @@ object LocalVoiceAssignment {
                         ?: male[mi % male.size].also { mi++ }
                 }
                 else -> {
-                    val all = pool.filter { it.id != narrator.id }
-                    all.firstOrNull { it.id !in used } ?: all.firstOrNull() ?: narrator
+                    // 未知性别：优先未用男声
+                    male.firstOrNull { it.id !in used }
+                        ?: pool.filter { it.id != narrator.id && it.id !in used }.firstOrNull()
+                        ?: narrator
                 }
             }
             used += pick.id

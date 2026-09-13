@@ -1,6 +1,13 @@
 package com.mimo.ebook2tts.local.voice
 
-/** 本地模型音色。speakerId 对应 sherpa-onnx OfflineTts 的 sid。 */
+/**
+ * 本地模型音色。speakerId 对应 sherpa-onnx OfflineTts 的 sid。
+ *
+ * Kokoro multi-lang v1.1（103 speakers，int8/fp32 通用）：
+ *  - 0–2    英文女声
+ *  - 3–57   中文女声
+ *  - 58–102 中文男声
+ */
 data class LocalVoice(
     val id: String,
     val label: String,
@@ -9,17 +16,27 @@ data class LocalVoice(
     val desc: String = "",
 ) {
     companion object {
-        /** Kokoro multi-lang 中文音色（v1.0 ID 45-52） */
-        val KOKORO_ZH = listOf(
-            LocalVoice("zf_xiaoxiao", "晓晓", "female", 47, "活泼女声"),
-            LocalVoice("zf_xiaoyi", "晓伊", "female", 48, "温柔女声"),
-            LocalVoice("zf_xiaoni", "晓妮", "female", 46, "知性女声"),
-            LocalVoice("zf_xiaobei", "晓北", "female", 45, "清亮女声"),
-            LocalVoice("zm_yunyang", "云扬", "male", 52, "沉稳男声（旁白默认）"),
-            LocalVoice("zm_yunjian", "云健", "male", 49, "浑厚男声"),
-            LocalVoice("zm_yunxi", "云希", "male", 50, "阳光男声"),
-            LocalVoice("zm_yunxia", "云夏", "male", 51, "少年男声"),
-        )
+
+        /** 生成 kokoro v1.1 全量音色列表（可点选） */
+        fun kokoroV11All(): List<LocalVoice> {
+            val list = mutableListOf<LocalVoice>()
+            // 英文女声 0-2
+            listOf("af_maple", "af_sol", "bf_vale").forEachIndexed { i, n ->
+                list += LocalVoice("en_$n", "EN·$n (女)", "female", i)
+            }
+            // 中文女声 3-57
+            for (sid in 3..57) {
+                list += LocalVoice("zf_$sid", "中文女 $sid", "female", sid)
+            }
+            // 中文男声 58-102
+            for (sid in 58..102) {
+                list += LocalVoice("zm_$sid", "中文男 $sid", "male", sid)
+            }
+            return list
+        }
+
+        /** 旁白默认：中文男声靠前（沉稳） */
+        const val DEFAULT_NARRATOR_ID = "zm_058"
 
         val VITS_ZH_LL = listOf(
             LocalVoice("ll_0", "中文女-0", "female", 0),
@@ -38,14 +55,18 @@ data class LocalVoice(
         }
 
         fun poolForModel(modelId: String, numSpeakers: Int = 0): List<LocalVoice> = when {
-            modelId.startsWith("kokoro") -> KOKORO_ZH
+            modelId.startsWith("kokoro") -> kokoroV11All()
             modelId.contains("zh-ll") -> VITS_ZH_LL
             numSpeakers > 0 -> vitsPool(numSpeakers)
             else -> VITS_ZH_LL
         }
 
-        fun byId(pool: List<LocalVoice>, id: String): LocalVoice =
-            pool.firstOrNull { it.id == id } ?: pool.first()
+        fun byId(pool: List<LocalVoice>, id: String): LocalVoice {
+            pool.firstOrNull { it.id == id }?.let { return it }
+            return pool.firstOrNull { it.id == DEFAULT_NARRATOR_ID }
+                ?: pool.firstOrNull { it.kind == "male" }
+                ?: pool.first()
+        }
 
         fun femalePool(pool: List<LocalVoice>) = pool.filter { it.kind == "female" }
         fun malePool(pool: List<LocalVoice>) = pool.filter { it.kind == "male" }
