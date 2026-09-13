@@ -31,14 +31,8 @@ class LocalTextToSpeechService : TextToSpeechService() {
         super.onCreate()
         engine = LocalSynthesisEngine(applicationContext)
         LocalPrefs.onEnginePrefsChanged = {
-            Log.i(TAG, "prefs changed → reload backend")
-            Thread {
-                try {
-                    engine.onPrefsChanged()
-                } catch (t: Throwable) {
-                    Log.e(TAG, "prefs reload failed", t)
-                }
-            }.start()
+            Log.i(TAG, "prefs changed → schedule reload")
+            engine.schedulePrefsReload()
         }
         Thread {
             try {
@@ -86,7 +80,11 @@ class LocalTextToSpeechService : TextToSpeechService() {
 
     /** 第三方 App（Legado 等）需要 Voice API 才能列出多音色 */
     override fun onGetVoices(): List<Voice> {
-        val pool = LocalVoice.poolForModel(LocalPrefs.modelId(this))
+        val pool = if (LocalPrefs.backend(this) == LocalPrefs.Backend.SYSTEM.id) {
+            LocalVoice.VITS_ZH_LL
+        } else {
+            LocalVoice.poolForModel(LocalPrefs.modelId(this))
+        }
         return pool.map { v ->
             Voice(
                 v.id,
@@ -123,10 +121,12 @@ class LocalTextToSpeechService : TextToSpeechService() {
         currentRequestStopped = false
         engine.resetStopped()
 
-        // 阅读器语速（request.speechRate，1000 = 1.0）
-        val readerRate = (request.speechRate / 1000f).coerceIn(0.5f, 2.5f)
-        // 显式 setVoice 覆盖自动多角色（仅非空且合法时）
+        // 阅读器语速（request.speechRate：100 = 正常，200 = 2 倍；官方单位）
+        val readerRate = (request.speechRate / 100f).coerceIn(0.5f, 2.5f)
+        // 显式 setVoice 覆盖自动多角色；忽略等于当前旁白的默认音色名（防客户端初始化劫持）
+        val narratorId = LocalPrefs.narratorVoice(this)
         val explicitVoice = request.voiceName?.takeIf { it.isNotBlank() }
+            ?.takeIf { it != narratorId }
             ?.takeIf { onIsValidVoiceName(it) == TextToSpeech.SUCCESS }
 
         Log.i(TAG, "onSynthesizeText len=${text.length} rate=$readerRate voice=$explicitVoice")

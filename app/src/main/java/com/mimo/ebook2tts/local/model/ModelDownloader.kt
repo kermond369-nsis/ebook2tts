@@ -50,7 +50,7 @@ object ModelDownloader {
         val dir = modelDir(context, spec)
         return when {
             isReady(context, spec) -> "已就绪 · ${formatSize(dirSize(dir))}"
-            hasAssets(context, spec) -> "APK 内置 · 点下载/安装解压"
+            hasAssets(context, spec) -> "APK 内置 · 点「安装」解压"
             dir.exists() && (dir.list()?.isNotEmpty() == true) -> "不完整 · ${dir.list()?.joinToString()}"
             else -> "未下载 · 约 ${formatSize(spec.approxBytes)}"
         }

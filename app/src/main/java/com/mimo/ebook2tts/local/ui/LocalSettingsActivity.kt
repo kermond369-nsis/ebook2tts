@@ -175,6 +175,7 @@ class LocalSettingsActivity : AppCompatActivity() {
                     }
                 }
                 Toast.makeText(this@LocalSettingsActivity, "模型已就绪", Toast.LENGTH_SHORT).show()
+                LocalPrefs.setBackend(this@LocalSettingsActivity, LocalPrefs.backend(this@LocalSettingsActivity))
             } catch (t: Throwable) {
                 android.util.Log.e("LocalSettings", "install failed", t)
                 Toast.makeText(

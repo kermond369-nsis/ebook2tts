@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Local multi-voice TTS</string>
     <string name="tts_engine_label">书声本地 · 多角色有声</string>
-    <string name="author_line">版本 0.1.1-alpha · Kermond</string>
+    <string name="author_line">版本 0.0.2 · Kermond</string>
     <string name="hint_no_key">无需 API Key。首次使用请安装模型。</string>
     <string name="label_backend">合成后端</string>
     <string name="backend_sherpa">本地模型（SherpaONNX）</string>

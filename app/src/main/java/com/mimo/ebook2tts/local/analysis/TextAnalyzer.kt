@@ -160,8 +160,8 @@ class TextAnalyzer(
                 val wStart = (qStart - 24).coerceAtLeast(0)
                 val wEnd = (qEnd + 24).coerceAtMost(text.length)
                 val window = text.substring(wStart, wEnd)
-                val sp = guessSpeaker(window)
-                    ?: lastSpeaker.takeIf { it != SpeakerIds.NARRATOR && units.none { u -> u.speakerId == it && u.isDialogue } }
+                val sp = guessSpeaker(window, knownSpeakers)
+                    ?: lastSpeaker.takeIf { it != SpeakerIds.NARRATOR }
                     ?: SpeakerIds.NARRATOR
                 if (sp != SpeakerIds.NARRATOR) {
                     knownSpeakers += sp
@@ -256,6 +256,7 @@ class TextAnalyzer(
             m = Regex("([一-龥A-Za-z]{2,3})[^“\"]{0,16}(?:说道|道|问|答|说)[：:，,]?[“\"]").find(p)
             if (m != null && isPlausibleName(m.groupValues[1])) return m.groupValues[1]
 
+            // 已知角色近邻（需传入 knownSpeakers）
             if (extractQuote(p) != null && known.isNotEmpty()) {
                 val q = p.indexOfFirst { it == '“' || it == '"' }
                 val close = p.indexOfFirst { it == '”' || it == '"' }

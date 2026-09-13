@@ -49,6 +49,25 @@ class LocalSynthesisEngine(context: Context) {
     private val castLock = Any()
     private val stopped = AtomicBoolean(false)
     private val backendReady = java.util.concurrent.CountDownLatch(1)
+    private val reloadExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "tts-reload").apply { isDaemon = true }
+    }
+    private val reloadHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val reloadRunnable = Runnable {
+        reloadExecutor.execute {
+            try {
+                onPrefsChanged()
+            } catch (t: Throwable) {
+                Log.e(TAG, "prefs reload failed", t)
+            }
+        }
+    }
+
+    /** 去抖 400ms，串行重载，避免拖滑杆连发 + 并发释放 native */
+    fun schedulePrefsReload() {
+        reloadHandler.removeCallbacks(reloadRunnable)
+        reloadHandler.postDelayed(reloadRunnable, 400)
+    }
 
     fun registry(): CharacterRegistry = registry
 
@@ -226,6 +245,8 @@ class LocalSynthesisEngine(context: Context) {
     }
 
     fun release() {
+        reloadHandler.removeCallbacks(reloadRunnable)
+        reloadExecutor.shutdown()
         backend?.release()
         backend = null
     }
