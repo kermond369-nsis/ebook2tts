@@ -19,7 +19,7 @@ jobs:
   release:
     name: Build and publish
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -42,6 +42,9 @@ jobs:
         run: |
           sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
           yes | sdkmanager --licenses || true
+
+      - name: Unit tests
+        run: gradle :core:test --no-daemon
 
       - name: Build debug APK
         id: build
@@ -81,7 +84,7 @@ jobs:
           else
             TITLE="build ${SHORT_SHA}"
           fi
-          BODY="Automated debug APK for com.mimo.ebook2tts.local.
+          BODY="Automated debug APK for com.mimo.ebook2tts.local (0.2.0-alpha.1 rewrite).
 
           - Commit: ${GITHUB_SHA}
           - Abbreviated: ${SHORT_SHA}

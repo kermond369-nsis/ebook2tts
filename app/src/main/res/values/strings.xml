@@ -1,22 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Local multi-voice TTS</string>
-    <string name="tts_engine_label">书声本地 · 多角色有声</string>
-    <string name="author_line">版本 0.0.2 · Kermond</string>
-    <string name="hint_no_key">无需 API Key。首次使用请安装模型。</string>
-    <string name="label_backend">合成后端</string>
-    <string name="backend_sherpa">本地模型（SherpaONNX）</string>
-    <string name="backend_system">使用系统自带语音（备用）</string>
-    <string name="label_model">本地模型</string>
-    <string name="label_narrator">旁白音色</string>
-    <string name="btn_pick_model">切换模型</string>
-    <string name="btn_download">安装</string>
-    <string name="btn_delete">删除</string>
-    <string name="btn_pick_narrator">选择旁白音色</string>
-    <string name="btn_open_tts">打开系统 TTS 设置</string>
-    <string name="btn_test_speak">试听测试句</string>
-    <string name="label_custom_url">自定义下载链接（可选）</string>
-    <string name="hint_custom_url">粘贴模型直链（可选，仅 https）</string>
-    <string name="label_speed">语速</string>
-    <string name="label_threads">CPU 线程数</string>
+    <string name="app_name">书声本地</string>
+    <string name="author">Kermond</string>
+    <string name="talkback_notice">本引擎定位于小说/阅读类 App 长文本朗读，不针对无障碍屏幕阅读场景优化。请勿设为全局 TalkBack 语音。</string>
 </resources>

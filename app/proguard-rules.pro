@@ -1,1 +1,5 @@
 -keep class com.k2fsa.sherpa.onnx.** { *; }
+-keep class com.tencent.mmkv.** { *; }
+-keep class com.mimo.ebook2tts.engine.ipc.** { *; }
+-keep class * implements android.os.Parcelable { public static final ** CREATOR; }
+-keepclasseswithmembernames class * { native <methods>; }

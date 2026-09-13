@@ -5,11 +5,12 @@
 .DS_Store
 /build
 /app/build
+/core/build
+/engine/build
 /captures
 .externalNativeBuild
 .cxx
 *.apk
-!app-debug.apk
 
 # local test scratch (models, dumps)
 _test/

@@ -13,4 +13,6 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "ebook2tts-local"
+include(":core")
+include(":engine")
 include(":app")

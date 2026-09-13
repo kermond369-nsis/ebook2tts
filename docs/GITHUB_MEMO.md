@@ -30,8 +30,8 @@
 
 ## 3. 版本号
 
-- 本仓库起点：**`0.1.1Alpha`**（不跟随云端版 `0.1beta`）
-- `app/build.gradle.kts`：`versionName = "0.1.1Alpha"`
+- 0.2 重构基线：**`0.2.0-alpha.1`**（M1，对齐需求书/实现报告）
+- `app/build.gradle.kts`：`versionName = "0.2.0-alpha.1"`
 
 ---
 
@@ -74,7 +74,7 @@
 | JDK | 17 |
 | SDK | android-34 + build-tools 34.0.0 |
 | 产物 | `app/build/outputs/apk/debug/app-debug.apk` |
-| 本地 AAR | `app/libs/sherpa-onnx-1.13.8.aar`（约 50MB，随仓库） |
+| 本地 AAR | `engine/libs/sherpa-onnx-1.13.8.aar`（约 50MB，随仓库） |
 
 ---
 

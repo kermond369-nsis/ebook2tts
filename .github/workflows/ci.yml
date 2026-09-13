@@ -13,9 +13,9 @@ concurrency:
 
 jobs:
   build:
-    name: Build debug APK
+    name: Lint + unit tests + debug APK
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -39,10 +39,14 @@ jobs:
           sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
           yes | sdkmanager --licenses || true
 
-      - name: Unit tests
-        run: gradle :app:testDebugUnitTest --no-daemon
+      - name: Core unit tests
+        run: gradle :core:test --no-daemon --stacktrace
 
-      - name: Build
+      - name: Engine unit tests
+        run: gradle :engine:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Build debug APK
+        id: build
         run: |
           gradle :app:assembleDebug --no-daemon --stacktrace
           SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
