@@ -2,155 +2,217 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp">
+    android:fillViewport="true"
+    android:background="@color/bg">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:padding="20dp">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/app_name"
-            android:textSize="20sp"
-            android:textStyle="bold"
-            android:paddingBottom="2dp" />
+            android:textColor="@color/on_bg"
+            android:textSize="22sp"
+            android:textStyle="bold" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
             android:text="@string/author_line"
-            android:textSize="12sp"
-            android:paddingBottom="8dp" />
+            android:textColor="@color/on_bg_secondary"
+            android:textSize="12sp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="无需 API Key。首次使用请下载模型；低端机可改用系统 TTS。"
+            android:layout_marginTop="12dp"
+            android:text="@string/hint_no_key"
+            android:textColor="@color/on_bg_secondary"
+            android:textSize="13sp" />
+
+        <!-- Backend -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/label_backend"
+            android:textColor="@color/accent"
             android:textSize="13sp"
-            android:paddingBottom="12dp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="合成后端"
             android:textStyle="bold" />
 
         <RadioGroup
             android:id="@+id/backendGroup"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:orientation="vertical">
 
             <RadioButton
                 android:id="@+id/radioSherpa"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="本地模型（SherpaONNX）" />
+                android:text="@string/backend_sherpa"
+                android:textColor="@color/on_bg" />
 
             <RadioButton
                 android:id="@+id/radioSystem"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="系统 TTS（机械音兜底）" />
+                android:text="@string/backend_system"
+                android:textColor="@color/on_bg" />
         </RadioGroup>
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginVertical="12dp"
-            android:background="#33000000" />
-
+        <!-- Model card -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="本地模型"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/modelLabel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/label_model"
+            android:textColor="@color/accent"
             android:textSize="13sp"
-            android:paddingTop="4dp" />
-
-        <TextView
-            android:id="@+id/modelStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:textColor="#666666" />
+            android:textStyle="bold" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingTop="8dp">
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="16dp">
 
-            <Button
-                android:id="@+id/btnPickModel"
-                android:layout_width="0dp"
+            <TextView
+                android:id="@+id/modelLabel"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="选择" />
+                android:textColor="@color/on_bg"
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
-            <Button
-                android:id="@+id/btnDownload"
-                android:layout_width="0dp"
+            <TextView
+                android:id="@+id/modelDesc"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="下载" />
+                android:layout_marginTop="4dp"
+                android:textColor="@color/on_bg_secondary"
+                android:textSize="13sp" />
 
-            <Button
-                android:id="@+id/btnDeleteModel"
-                android:layout_width="0dp"
+            <TextView
+                android:id="@+id/modelStatus"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="删除" />
+                android:layout_marginTop="8dp"
+                android:textColor="@color/accent"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnPickModel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:text="@string/btn_pick_model" />
+
+                <Button
+                    android:id="@+id/btnDownload"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:text="@string/btn_download" />
+
+                <Button
+                    android:id="@+id/btnDeleteModel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/btn_delete" />
+            </LinearLayout>
+
+            <!-- 不可拖动：进度条 -->
+            <ProgressBar
+                android:id="@+id/progressBar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:indeterminate="false"
+                android:max="100"
+                android:progress="0"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/progressText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="@color/on_bg_secondary"
+                android:textSize="12sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/label_custom_url"
+                android:textColor="@color/on_bg_secondary"
+                android:textSize="12sp" />
+
+            <EditText
+                android:id="@+id/editCustomUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:hint="@string/hint_custom_url"
+                android:importantForAutofill="no"
+                android:inputType="textUri"
+                android:textColor="@color/on_bg"
+                android:textColorHint="@color/on_bg_secondary"
+                android:textSize="13sp" />
         </LinearLayout>
 
-        <SeekBar
-            android:id="@+id/progressBar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:max="100" />
-
+        <!-- Narrator -->
         <TextView
-            android:id="@+id/progressText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="12sp" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginVertical="12dp"
-            android:background="#33000000" />
+            android:layout_marginTop="20dp"
+            android:text="@string/label_narrator"
+            android:textColor="@color/accent"
+            android:textSize="13sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/narratorLabel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/on_bg"
             android:textSize="14sp" />
 
         <Button
             android:id="@+id/btnPickNarrator"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="选择旁白音色" />
+            android:layout_marginTop="8dp"
+            android:text="@string/btn_pick_narrator" />
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginVertical="12dp"
-            android:background="#33000000" />
-
+        <!-- Speed / threads -->
         <TextView
             android:id="@+id/speedText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="语速" />
+            android:layout_marginTop="20dp"
+            android:textColor="@color/on_bg"
+            android:textSize="13sp" />
 
         <SeekBar
             android:id="@+id/speedBar"
@@ -162,7 +224,9 @@
             android:id="@+id/threadText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="线程" />
+            android:layout_marginTop="8dp"
+            android:textColor="@color/on_bg"
+            android:textSize="13sp" />
 
         <SeekBar
             android:id="@+id/threadBar"
@@ -174,12 +238,14 @@
             android:id="@+id/btnOpenTtsSettings"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="打开系统 TTS 设置" />
+            android:layout_marginTop="16dp"
+            android:text="@string/btn_open_tts" />
 
         <Button
             android:id="@+id/btnTest"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="测试朗读" />
+            android:layout_marginTop="8dp"
+            android:text="@string/btn_test_speak" />
     </LinearLayout>
 </ScrollView>

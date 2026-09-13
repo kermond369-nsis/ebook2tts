@@ -16,6 +16,13 @@ object LocalPrefs {
     private const val KEY_NUM_THREADS = "num_threads"
     private const val KEY_SPEED = "speed"
     private const val KEY_BUFFER = "buffer_size"
+    private const val KEY_CUSTOM_URL_PREFIX = "custom_url_"
+
+    fun customUrl(c: Context, modelId: String): String =
+        prefs(c).getString(KEY_CUSTOM_URL_PREFIX + modelId, "") ?: ""
+
+    fun setCustomUrl(c: Context, modelId: String, url: String) =
+        prefs(c).edit().putString(KEY_CUSTOM_URL_PREFIX + modelId, url.trim()).apply()
 
     fun prefs(c: Context): SharedPreferences =
         c.applicationContext.getSharedPreferences(NAME, Context.MODE_PRIVATE)

@@ -39,6 +39,10 @@ android {
         jniLibs {
             useLegacyPackaging = true
         }
+        // 大模型 assets 不压缩，加快首次拷贝
+        resources {
+            excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*")
+        }
     }
 }
 

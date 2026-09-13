@@ -1,6 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">书声本地</string>
-    <string name="tts_engine_label">书声本地 · 多角色有声</string>
-    <string name="author_line">v0.1.1Alpha · 作者 Kermond</string>
+    <string name="app_name">Local multi-voice TTS</string>
+    <string name="tts_engine_label">Local multi-voice TTS</string>
+    <string name="author_line">v0.1.1Alpha · Kermond</string>
+    <string name="hint_no_key">No API key. Download a model on first run.</string>
+    <string name="label_backend">Synthesis backend</string>
+    <string name="backend_sherpa">On-device model (SherpaONNX)</string>
+    <string name="backend_system">System TTS (fallback)</string>
+    <string name="label_model">Model</string>
+    <string name="label_narrator">Narrator voice</string>
+    <string name="btn_pick_model">Choose</string>
+    <string name="btn_download">Download</string>
+    <string name="btn_delete">Delete</string>
+    <string name="btn_pick_narrator">Choose narrator</string>
+    <string name="btn_open_tts">Open system TTS settings</string>
+    <string name="btn_test_speak">Test speak</string>
+    <string name="label_custom_url">Custom download URL (optional)</string>
+    <string name="hint_custom_url">https://…/model.tar.bz2 — used instead of default mirrors</string>
+    <string name="label_speed">Speed</string>
+    <string name="label_threads">Threads</string>
 </resources>
