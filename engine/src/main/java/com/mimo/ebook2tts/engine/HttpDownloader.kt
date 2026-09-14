@@ -105,6 +105,12 @@ class HttpDownloader(
         part.parentFile?.mkdirs()
         var offset = if (part.exists()) part.length() else 0L
         if (expectedBytes > 0L && offset == expectedBytes) return
+        if (expectedBytes > 0L && offset > expectedBytes) {
+            // 残包超长（清单换版/写入异常）：清空重下，避免越界 Range 触发 416 死循环（agy 交办 P2-01）
+            Log.w(TAG, "PART_OVERSIZE|reset|got=$offset|expected=$expectedBytes")
+            part.delete()
+            offset = 0L
+        }
 
         val req = Request.Builder().url(url)
             .apply { if (offset > 0L) header("Range", "bytes=$offset-") }

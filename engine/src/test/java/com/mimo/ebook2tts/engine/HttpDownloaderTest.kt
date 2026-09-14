@@ -130,4 +130,14 @@ class HttpDownloaderTest {
     fun pickFastest_skipsDeadSource() {
         assertEquals(baseUrl, downloader.pickFastest(listOf("http://127.0.0.1:1/dead", baseUrl)))
     }
+
+    @Test
+    fun oversizePartFile_selfHealsWithoutRange() {
+        // agy 交办 P2-01：残包体积大于清单声明时必须清空重下，否则越界 Range 触发 416 死循环
+        part().writeBytes(ByteArray(payload.size + 4096) { 7 })
+        downloader.download(baseUrl, part(), payload.size.toLong(), { _, _ -> }, { false })
+        assertEquals(payload.size.toLong(), part().length())
+        assertTrue(downloaded())
+        assertNull("超长残包应被清空重下（不得携带 Range）", server.takeRequest().getHeader("Range"))
+    }
 }

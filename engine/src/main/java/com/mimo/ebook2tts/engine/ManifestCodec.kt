@@ -77,7 +77,7 @@ object ManifestCodec {
         )
     }
 
-    /** 下载源强制 https（明文 http 仅允许出现在「自定义镜像」用户配置，不进入清单） */
+    /** 下载源强制 https（清单与自定义镜像一律 https：应用 `usesCleartextTraffic=false`，明文必被系统拒绝） */
     private fun requireHttps(url: String): String {
         val s = url.trim()
         require(s.startsWith("https://") && s.length > "https://".length) { "non-https url" }
