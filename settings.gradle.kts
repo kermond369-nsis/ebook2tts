@@ -15,4 +15,5 @@ dependencyResolutionManagement {
 rootProject.name = "ebook2tts-local"
 include(":core")
 include(":engine")
-include(":app")
+// :app 已由 Flutter 工程接管（app/android 为独立 Gradle 构建，并 include 本仓 :core/:engine），
+// 根构建不再包含它，避免两套 Gradle 构建互相打架。

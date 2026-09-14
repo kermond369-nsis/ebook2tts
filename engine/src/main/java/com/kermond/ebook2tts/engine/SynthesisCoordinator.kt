@@ -210,6 +210,8 @@ class SynthesisCoordinator(
                 ConfigStore.setStatusModelId(spec.id)
                 ConfigStore.setStatusLastError("")
                 Log.i(TAG, "reload ok model=$modelId sr=${b.sampleRate} speakers=${b.numSpeakers()}")
+                // 桥接/诊断页读取的「实测采样率」：仅在加载成功后写入（未成功保持 0，不猜测）
+                ConfigStore.setStatusSampleRate(b.sampleRate)
             }
         } catch (t: Throwable) {
             Log.e(TAG, "reload failed", t)

@@ -1,0 +1,25 @@
+name: ebook2tts
+description: "书声本地——离线电子书朗读 App（P3 Flutter 界面，界面与 :engine 同属一个 App）"
+publish_to: 'none'
+
+version: 0.2.0-alpha.1+1
+
+environment:
+  sdk: ^3.13.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # 状态管理（ADR-005：Riverpod）
+  flutter_riverpod: ^3.4.3
+  # 仅用于 Mock 阶段的本机配置持久化（等价于引擎侧 MMKV 的落点）
+  shared_preferences: ^2.5.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

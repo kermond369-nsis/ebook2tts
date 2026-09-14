@@ -96,6 +96,23 @@ object ConfigStore {
         kv().encode("online.tokenPlanAccepted", v)
     }
 
+    /** 语速倍数（用户值，0.5–2.0；阅读器优先模式下作为上限约束） */
+    fun speedValue(): Float = kv().decodeFloat("speed.value", 1.0f)
+    fun setSpeedValue(v: Float) {
+        kv().encode("speed.value", v.coerceIn(0.5f, 2.0f))
+    }
+
+    /** 引擎实测采样率（模型加载成功后写入；0 = 未知）——**不猜测**，未加载成功保持 0 */
+    fun statusSampleRate(): Int = kv().decodeInt("status.sampleRate", 0)
+    fun setStatusSampleRate(sr: Int) {
+        kv().encode("status.sampleRate", sr)
+    }
+
+    /** 性能计数清零（诊断页用；丢块等计数复位） */
+    fun resetPerfCounters() {
+        kv().encode("status.dropUnit", 0)
+    }
+
     /** 允许使用数据流量（默认关：蜂窝下禁止在线与模型下载，见 core.NetPolicy） */
     fun netAllowMobileData(): Boolean = kv().decodeBool("net.allowMobileData", false)
     fun setNetAllowMobileData(v: Boolean) {

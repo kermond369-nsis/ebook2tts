@@ -1,0 +1,71 @@
+plugins {
+    id("com.android.application")
+    // Flutter Gradle 插件必须在 Android 插件之后应用
+    // （Kotlin 插件由 Flutter Gradle 插件在 AGP 8.x 下自动加载，见 FlutterPluginUtils）
+    id("dev.flutter.flutter-gradle-plugin")
+}
+
+android {
+    namespace = "com.kermond.ebook2tts"
+    // P3 规格 §1：minSdk 27、compileSdk 35
+    compileSdk = 35
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    defaultConfig {
+        applicationId = "com.kermond.ebook2tts"
+        minSdk = 27
+        targetSdk = 34
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+
+    buildTypes {
+        debug {
+            // 规格 §1：调试包仅供 MuMu(x86_64) 验证，只留 x86_64 以控制体积/安装时间
+            // （注意：必须 clear，否则 Flutter 注入的 ABI 列表会残留）
+            ndk {
+                abiFilters.clear()
+                abiFilters.add("x86_64")
+            }
+        }
+        release {
+            // 正式包 ABI（DQ-2 / 规格 §1）：arm64-v8a + armeabi-v7a
+            ndk {
+                abiFilters.clear()
+                abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
+            }
+            // 正式签名由发布线配置；当前阶段沿用调试签名，保证 `flutter run --release` 可用
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // 引擎 AAR 内置三套 ABI（arm64-v8a / armeabi-v7a / x86_64），调试包不剥离符号，
+            // 避免依赖本机未安装的 NDK 工具链
+            keepDebugSymbols += listOf("**/*.so")
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+dependencies {
+    // P3 规格 §1：App 通过 :engine 依赖本机引擎（:core 由 :engine 传递，api 依赖）
+    implementation(project(":engine"))
+    // sherpa-onnx 本地 AAR：:engine 以 compileOnly 引用（避免库模块打 AAR 失败），
+    // 运行时由本模块引入，保证 .so 与类进入 APK。
+    implementation(files("../../../engine/libs/sherpa-onnx-1.13.8.aar"))
+}

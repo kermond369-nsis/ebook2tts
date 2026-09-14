@@ -41,7 +41,11 @@ android {
 
 dependencies {
     api(project(":core"))
-    api(files("libs/sherpa-onnx-1.13.8.aar"))
+    // sherpa-onnx 为本地 AAR：库模块若以 api 依赖它，AGP 打 AAR 时会失败
+    // （"Direct local .aar file dependencies are not supported when building an AAR"）。
+    // 故此处 compileOnly（编译期可见），运行时由宿主 App 模块以 implementation(files(...)) 引入，
+    // 产物中仍会正确包含 .so 与类。
+    compileOnly(files("libs/sherpa-onnx-1.13.8.aar"))
     api("com.tencent:mmkv:1.3.9")
 
     implementation("androidx.core:core-ktx:1.13.1")
