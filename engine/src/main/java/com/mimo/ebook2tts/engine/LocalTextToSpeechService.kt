@@ -93,15 +93,19 @@ class LocalTextToSpeechService : TextToSpeechService() {
 
     override fun onGetVoices(): List<Voice> {
         if (ConfigStore.statusState() == "NO_MODEL") return emptyList()
-        val pool = VoiceCatalog.poolForModel(ConfigStore.modelId())
+        val modelId = ConfigStore.modelId()
+        val pool = VoiceCatalog.poolForModel(modelId)
+        val quality = if (modelId.startsWith("kokoro")) Voice.QUALITY_HIGH else Voice.QUALITY_NORMAL
         return pool.map { v ->
             Voice(
-                v.id,
+                // ADR-007：系统侧展示中文名；onSynthesizeText 回传同名，由 VoiceCatalog 兼容解析
+                v.displayName,
                 Locale.SIMPLIFIED_CHINESE,
-                Voice.QUALITY_NORMAL,
+                quality,
                 Voice.LATENCY_NORMAL,
                 false,
-                mutableSetOf()
+                // 离线引擎特性声明（全本地合成，无需网络）
+                mutableSetOf(TextToSpeech.Engine.KEY_FEATURE_EMBEDDED_SYNTHESIS)
             )
         }
     }
@@ -124,7 +128,9 @@ class LocalTextToSpeechService : TextToSpeechService() {
         variant: String?,
     ): String? {
         if (ConfigStore.statusState() == "NO_MODEL") return null
-        return ConfigStore.narratorVoice()
+        // 返回**展示名**（与 onGetVoices 一致）
+        val pool = VoiceCatalog.poolForModel(ConfigStore.modelId())
+        return VoiceCatalog.resolve(pool, ConfigStore.narratorVoice()).displayName
     }
 
     override fun onSynthesizeText(request: SynthesisRequest, callback: SynthesisCallback) {
@@ -137,7 +143,5 @@ class LocalTextToSpeechService : TextToSpeechService() {
             TAG,
             "synth started=${result.started} err=${result.error} abort=${result.aborted}"
         )
-        // GAP| 打点（诊断）
-        Log.i(TAG, "GAP|${System.currentTimeMillis()}|${raw.length}|${result.sampleRate}")
     }
 }

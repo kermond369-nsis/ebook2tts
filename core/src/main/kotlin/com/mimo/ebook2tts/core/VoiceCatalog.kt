@@ -106,17 +106,20 @@ object VoiceCatalog {
         return pool.first()
     }
 
-    /** 兼容校验：legacy ID 仍可通过 */
+    /** 兼容校验：displayName / id / legacy ID 均可通过（ADR-007：系统侧展示与回传均为中文名） */
     fun isValid(pool: List<VoiceInfo>, id: String?): Boolean {
         if (id.isNullOrBlank()) return false
         val resolved = LEGACY_ALIASES[id] ?: id
-        return pool.any { it.id == resolved || it.legacyIds.contains(id) || it.id == id }
+        return pool.any {
+            it.id == resolved || it.id == id || it.displayName == id || it.legacyIds.contains(id)
+        }
     }
 
     fun resolve(pool: List<VoiceInfo>, id: String?): VoiceInfo {
         val raw = id?.let { LEGACY_ALIASES[it] ?: it }
         if (!raw.isNullOrBlank()) {
             pool.firstOrNull { it.id == raw }?.let { return it }
+            pool.firstOrNull { it.displayName == raw }?.let { return it }
             pool.firstOrNull { it.legacyIds.contains(id) }?.let { return it }
         }
         return defaultNarrator(pool)

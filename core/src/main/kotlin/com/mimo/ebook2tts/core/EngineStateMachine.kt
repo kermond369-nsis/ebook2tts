@@ -48,7 +48,12 @@ class EngineStateMachine {
                 // 请求级串行，由上层保证；允许进入
                 true
             }
-            EngineState.RELOADING -> false
+            EngineState.RELOADING -> {
+                // 接缝换装进行中：允许进入（就绪由 awaitBackend 有界等待兜住），
+                // 避免阅读器在下一次请求上收到 error 造成"跳句"。
+                state = EngineState.SYNTHESIZING
+                true
+            }
         }
     }
 

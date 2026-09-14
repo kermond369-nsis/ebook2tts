@@ -8,6 +8,7 @@ import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import com.mimo.ebook2tts.core.ModelSpec
 import com.mimo.ebook2tts.core.PcmChunker
+import com.mimo.ebook2tts.core.ProcessNames
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -36,6 +37,13 @@ class SherpaBackend(
     fun numSpeakers(): Int = runCatching { tts?.numSpeakers() ?: 0 }.getOrDefault(0)
 
     fun load() {
+        // 红线 4：native 模型只允许在 :tts_service 进程加载（主进程零推理）
+        val cmdline = runCatching { File("/proc/self/cmdline").readBytes() }.getOrNull()
+        if (!ProcessNames.isEngineProcess(ProcessNames.parseCmdline(cmdline))) {
+            loadError = "inference_outside_engine_process"
+            Log.e(TAG, "ABORT|load attempted outside :tts_service")
+            return
+        }
         try {
             if (!modelReady()) {
                 loadError = "模型未就绪"

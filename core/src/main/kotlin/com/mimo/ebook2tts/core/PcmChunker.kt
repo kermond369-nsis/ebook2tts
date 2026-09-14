@@ -26,24 +26,40 @@ object PcmChunker {
         return ByteArray(samples * 2)
     }
 
-    /** 请求边界微淡化 2~5ms（仅首块头/末块尾，AR-§4.8.2 A5） */
+    /**
+     * 请求边界微淡化 2~5ms（AR-§4.8.2 A5）。
+     * **仅允许用于请求首块头部与末块尾部**，严禁用于流式中间块（红线 6）。
+     */
     fun fadeEdges(pcm: ByteArray, sampleRate: Int = 24000, fadeMs: Int = 3): ByteArray {
         if (pcm.size < 8) return pcm
+        return fadeTail(fadeHead(pcm, sampleRate, fadeMs), sampleRate, fadeMs)
+    }
+
+    /** 仅首块头部淡入（红线 6：只作用于请求首块） */
+    fun fadeHead(pcm: ByteArray, sampleRate: Int = 24000, fadeMs: Int = 3): ByteArray {
+        if (pcm.size < 8) return pcm
         val out = pcm.copyOf()
-        val fadeBytes = ((sampleRate * fadeMs / 1000) * 2).coerceIn(2, out.size / 4)
-        // head
+        val fadeBytes = fadeLen(out.size, sampleRate, fadeMs)
         for (i in 0 until fadeBytes step 2) {
-            val gain = i.toFloat() / fadeBytes
-            applyGain(out, i, gain)
-        }
-        // tail
-        val tailStart = out.size - fadeBytes
-        for (i in tailStart until out.size step 2) {
-            val gain = (out.size - i).toFloat() / fadeBytes
-            applyGain(out, i, gain.coerceIn(0f, 1f))
+            applyGain(out, i, i.toFloat() / fadeBytes)
         }
         return out
     }
+
+    /** 仅末块尾部淡出（红线 6：只作用于请求末块） */
+    fun fadeTail(pcm: ByteArray, sampleRate: Int = 24000, fadeMs: Int = 3): ByteArray {
+        if (pcm.size < 8) return pcm
+        val out = pcm.copyOf()
+        val fadeBytes = fadeLen(out.size, sampleRate, fadeMs)
+        val tailStart = out.size - fadeBytes
+        for (i in tailStart until out.size step 2) {
+            applyGain(out, i, ((out.size - i).toFloat() / fadeBytes).coerceIn(0f, 1f))
+        }
+        return out
+    }
+
+    private fun fadeLen(size: Int, sampleRate: Int, fadeMs: Int): Int =
+        ((sampleRate * fadeMs / 1000) * 2).coerceIn(2, (size / 4).coerceAtLeast(2))
 
     private fun applyGain(buf: ByteArray, index: Int, gain: Float) {
         if (index + 1 >= buf.size) return
