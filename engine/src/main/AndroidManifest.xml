@@ -23,6 +23,12 @@
                 android:resource="@xml/tts_engine" />
         </service>
 
+        <!-- 试听入口（IM-114 / IM-406b）：跑在引擎进程内，界面进程不得推理 -->
+        <service
+            android:name=".PreviewService"
+            android:exported="false"
+            android:process=":tts_service" />
+
         <activity
             android:name=".CheckTtsDataActivity"
             android:exported="true"

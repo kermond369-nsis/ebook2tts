@@ -9,7 +9,7 @@ import com.kermond.ebook2tts.core.OnlineSettings
 import com.kermond.ebook2tts.core.VoiceCatalog
 import com.kermond.ebook2tts.engine.ConfigStore
 import com.kermond.ebook2tts.engine.DownloadService
-import com.kermond.ebook2tts.engine.PreviewPlayer
+import com.kermond.ebook2tts.engine.PreviewService
 import com.tencent.mmkv.MMKV
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import kotlinx.coroutines.CoroutineScope
@@ -34,13 +34,12 @@ import java.util.concurrent.TimeUnit
  * - 配置**单写**：全部读写经 `ConfigStore`（MMKV 多进程），App 不得直接触碰引擎存储；
  * - **密钥不回明文**：`config()` 只回脱敏串，密钥不写日志；
  * - 进度推送不入侵引擎：下载中按暂存区 `.part` 实际字节数取样上报（只读文件长度）；
- * - 试听走 `PreviewPlayer`（**不写全局旁白**，IM-114）。
+ * - 试听经 `PreviewService` 交给 `:tts_service` 进程播放（**不写全局旁白**，IM-114 / IM-406b）。
  */
 class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
 
     private lateinit var context: Context
     private var eventApi: EngineEventApi? = null
-    private var preview: PreviewPlayer? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /** 桥接观测到的事件（诊断页用，新的在下，最多 200 条）。 */
@@ -61,7 +60,7 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         // 引擎进程由 EngineApp.onCreate 初始化，两进程共享同一 MMKV 根目录）。
         runCatching { MMKV.initialize(context) }
         eventApi = EngineEventApi(binding.binaryMessenger)
-        preview = PreviewPlayer(context)
+        // 试听不在此进程持有播放器：推理只允许在 :tts_service（见 PreviewService 注释）
         EngineHostApi.setUp(binding.binaryMessenger, this)
         log("bridge attached")
     }
@@ -69,8 +68,6 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         EngineHostApi.setUp(binding.binaryMessenger, null)
         progressJob?.cancel()
-        preview?.stop()
-        preview = null
         eventApi = null
         scope.cancel()
     }
@@ -181,29 +178,17 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
     }
 
     override suspend fun preview(text: String, voiceId: String) {
-        val p = preview ?: return
-        p.preview(text, voiceId, ConfigStore.speedValue(), object : PreviewPlayer.Listener {
-            override fun onStart(sampleRate: Int) {
-                emit("progress", JSONObject().put("phase", "preview_start").put("sr", sampleRate).toString())
-            }
-
-            override fun onProgress(percent: Int) {
-                emit("progress", JSONObject().put("phase", "preview").put("percent", percent).toString())
-            }
-
-            override fun onDone() {
-                emit("progress", JSONObject().put("phase", "preview_done").toString())
-            }
-
-            override fun onError(code: Int, message: String) {
-                log("preview error $code $message")
-                emit("error", JSONObject().put("code", code).put("message", message).toString())
-            }
-        })
+        // 交给 :tts_service 进程内的 PreviewService 播放：界面进程零推理（AR-§1.7），
+        // 且试听只播放样音、不写全局旁白（IM-114）。
+        PreviewService.preview(context, text, voiceId)
+        emit(
+            "progress",
+            JSONObject().put("phase", "preview_dispatched").put("voice", voiceId).toString()
+        )
     }
 
     override suspend fun stopPreview() {
-        preview?.stop()
+        PreviewService.stop(context)
         emit("progress", JSONObject().put("phase", "preview_stopped").toString())
     }
 
