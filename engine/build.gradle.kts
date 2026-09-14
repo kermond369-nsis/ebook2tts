@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.mimo.ebook2tts.engine"
+    namespace = "com.kermond.ebook2tts.engine"
     compileSdk = 34
 
     defaultConfig {

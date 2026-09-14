@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.mimo.ebook2tts.local"
+    namespace = "com.kermond.ebook2tts"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.mimo.ebook2tts.local"
+        applicationId = "com.kermond.ebook2tts"
         minSdk = 27
         targetSdk = 34
         versionCode = 3
