@@ -26,11 +26,14 @@ class DownloadService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val modelId = intent?.getStringExtra(EXTRA_MODEL_ID) ?: ModelCatalog.DEFAULT_ID
-        val spec = ModelCatalog.byId(modelId)
-        startAsForeground(spec.label)
+        // 通知标题先用通用文案：清单解析含网络（远程 manifest），严禁在主线程做
+        startAsForeground("模型下载")
         val dl = ModelDownloader(this)
         downloader = dl
         executor.execute {
+            // IM-201：清单驱动（远程清单 → 缓存 → 内置兜底）；在工作线程解析，避免 NetworkOnMainThread
+            val spec = runCatching { ModelRegistry.byId(this@DownloadService, modelId) }
+                .getOrDefault(ModelCatalog.byId(modelId))
             dl.downloadAndInstall(spec, object : ModelDownloader.Progress {
                 override fun onProgress(bytes: Long, total: Long, stage: String) {
                     val p = if (total > 0) ((bytes * 100) / total).toInt() else 0

@@ -72,6 +72,18 @@ object ConfigStore {
         kv().encode("migration.v2.done", v)
     }
 
+    /** 自定义镜像基地址（IM-201）；空 = 用官方源 */
+    fun mirrorBase(): String = kv().decodeString("mirror.base", "")!!
+    fun setMirrorBase(url: String) {
+        kv().encode("mirror.base", url.trim())
+    }
+
+    /** 清单上次远程拉取成功时间（毫秒；0 = 从未成功） */
+    fun manifestFetchedAt(): Long = kv().decodeLong("manifest.fetchedAt", 0L)
+    fun setManifestFetchedAt(at: Long) {
+        kv().encode("manifest.fetchedAt", at)
+    }
+
     fun notifyReload(context: Context, reason: String = "config") {
         val i = Intent(ACTION_ENGINE_RELOAD).setPackage(context.packageName)
         i.putExtra("reason", reason)

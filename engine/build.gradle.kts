@@ -33,6 +33,10 @@ android {
             useLegacyPackaging = true
         }
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true // android.util.Log 等在 JVM 单测中返回默认值
+    }
 }
 
 dependencies {
@@ -44,7 +48,13 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.apache.commons:commons-compress:1.26.0")
+    // IM-202 / ADR-004：多源测速 + 断点续传 + 清单拉取统一走 OkHttp
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.24")
+    // Android 单元测试中提供真实 org.json（android.jar 的 stub 会抛 not mocked）
+    testImplementation("org.json:json:20240303")
+    // 本地 HTTP 服务器测试替身（IM-202 续传/整包语义；OkHttp 官方测试组件）
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

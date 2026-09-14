@@ -2,9 +2,12 @@ package com.mimo.ebook2tts.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 class VoiceCatalogTest {
 
@@ -104,6 +107,71 @@ class ModelCatalogTest {
         assertEquals(338_643_545L, ModelCatalog.requiredSpaceBytes(135_457_418L))
         assertTrue(ModelCatalog.hasEnoughSpace(135_457_418L, 338_643_545L))
         assertFalse(ModelCatalog.hasEnoughSpace(135_457_418L, 200_000_000L))
+    }
+
+    @Test
+    fun spacePrecheck_allModels_matchErrata001() {
+        // ERR-001 §4：int8 538MB / fp32 1067MB / zh-ll 339MB（全程 Long，勿溢出）
+        assertEquals(538_304_005L, ModelCatalog.requiredSpaceBytes(215_321_602L))
+        assertEquals(1_066_635_940L, ModelCatalog.requiredSpaceBytes(426_654_376L))
+        assertEquals(338_643_545L, ModelCatalog.requiredSpaceBytes(135_457_418L))
+    }
+
+    @Test
+    fun builtinManifest_isWellFormed() {
+        val m = ModelCatalog.manifest()
+        assertEquals(ModelCatalog.BUILTIN_MANIFEST_VERSION, m.version)
+        assertEquals(listOf("kokoro-int8", "vits-zh-ll", "kokoro-fp32"), m.models.map { it.id })
+        assertEquals(ModelCatalog.DEFAULT_ID, m.byId(ModelCatalog.DEFAULT_ID)?.id)
+        // 每个模型都必须有可测速的源，且主源为 https
+        for (spec in m.models) {
+            assertTrue(spec.sources.isNotEmpty())
+            assertTrue(spec.sources.all { it.startsWith("https://") })
+            assertTrue(spec.downloadBytes > 0 && spec.extractedBytes > 0)
+            assertTrue(ModelLimits.SHA256.matches(spec.sha256))
+        }
+    }
+}
+
+class MirrorResolverTest {
+
+    private val spec = ModelCatalog.ALL.first()
+
+    @Test
+    fun noCustom_givesOfficialSources() {
+        // 基线＝内置清单自带源（官方主源 + 加速镜像，数量随清单演进，勿写死）
+        val base = spec.sources
+        assertTrue(base.size >= 2)
+        assertEquals(spec.primaryUrl, base.first())
+        assertEquals(base, MirrorResolver.sources(spec, null))
+        assertEquals(base, MirrorResolver.sources(spec, "   "))
+        // 无协议前缀 → 视为非法配置，忽略
+        assertEquals(base, MirrorResolver.sources(spec, "mirror.lan/tts"))
+        // 明文 http → 忽略（应用禁用明文流量，收下只会"配了却下不动"）
+        assertEquals(base, MirrorResolver.sources(spec, "http://mirror.lan/tts"))
+        assertEquals(base, MirrorResolver.sources(spec, "https://"))
+    }
+
+    @Test
+    fun customMirror_appendedAndTrimmed() {
+        val base = spec.sources
+        val s = MirrorResolver.sources(spec, "https://mirror.lan/tts/")
+        assertEquals(base.size + 1, s.size)
+        assertEquals("https://mirror.lan/tts/${spec.archiveName}", s.last())
+        // 重复配置去重
+        val custom = "https://mirror.lan/tts/${spec.archiveName}"
+        val dup = MirrorResolver.sources(
+            spec.copy(extraMirrors = spec.extraMirrors + custom),
+            "https://mirror.lan/tts",
+        )
+        assertEquals(base.size + 1, dup.size)
+    }
+
+    @Test
+    fun customMirror_keepsOfficialFirst() {
+        val modified = MirrorResolver.withCustomMirror(spec, "https://mirror.lan/tts")
+        assertEquals(spec.primaryUrl, modified.sources.first())
+        assertEquals(spec.mirrorUrl, modified.sources[1])
     }
 }
 
@@ -239,5 +307,53 @@ class PcmChunkerTest {
         val tiny = ByteArray(4) { 7 }
         assertSame(tiny, PcmChunker.fadeHead(tiny, 24000, 3))
         assertSame(tiny, PcmChunker.fadeTail(tiny, 24000, 3))
+    }
+}
+
+/** 归档顶层目录兼容（IM-202）：官方 sherpa 归档顶层带目录名，落盘必须扁平。 */
+class ModelLayoutTest {
+
+    private fun tmp(): File = Files.createTempDirectory("layout").toFile()
+
+    @Test
+    fun flatLayout_rootIsDirItself() {
+        val d = tmp()
+        File(d, "model.onnx").writeText("x")
+        assertEquals(d, ModelLayout.resolveRoot(d, "model.onnx"))
+    }
+
+    @Test
+    fun nestedSingleDir_returnsInnerDir() {
+        // 实测形态：kokoro-int8-multi-lang-v1_1/model.int8.onnx
+        val d = tmp()
+        val inner = File(d, "kokoro-int8-multi-lang-v1_1").apply { mkdirs() }
+        File(inner, "model.int8.onnx").writeText("x")
+        File(inner, "voices.bin").writeText("y")
+        assertEquals(inner, ModelLayout.resolveRoot(d, "model.int8.onnx"))
+    }
+
+    @Test
+    fun ambiguousOrMissing_null() {
+        val d = tmp()
+        File(d, "a").mkdirs()
+        val b = File(d, "b").apply { mkdirs() }
+        File(b, "model.onnx").writeText("x")
+        assertNull("多个子目录不得猜测", ModelLayout.resolveRoot(d, "model.onnx"))
+        assertNull(ModelLayout.resolveRoot(d, "nope.onnx"))
+        assertNull(ModelLayout.resolveRoot(File(d, "ghost"), "model.onnx"))
+    }
+
+    @Test
+    fun cleanupScaffold_removesTopDirShell() {
+        val d = tmp()
+        val inner = File(d, "top").apply { mkdirs() }
+        File(inner, "model.onnx").writeText("x")
+        ModelLayout.cleanupScaffold(d, inner)
+        assertFalse("顶层空壳应被清理", d.exists())
+        // 扁平布局下不得误删
+        val flat = tmp()
+        File(flat, "model.onnx").writeText("x")
+        ModelLayout.cleanupScaffold(flat, flat)
+        assertTrue(flat.exists())
     }
 }
