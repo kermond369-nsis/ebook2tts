@@ -58,7 +58,7 @@ object SafeExtractor {
         var entries = 0
         BZip2CompressorInputStream(BufferedInputStream(input)).use { bz ->
             TarArchiveInputStream(bz).use { tar ->
-                var entry = tar.nextTarEntry
+                var entry = tar.nextEntry
                 while (entry != null) {
                     entries++
                     if (entries > MAX_ENTRIES) throw SecurityError("too many entries")
@@ -77,7 +77,7 @@ object SafeExtractor {
                         written += writeStream(tar, outFile, limit - written)
                         if (written > limit) throw SecurityError("extract size exceeded")
                     }
-                    entry = tar.nextTarEntry
+                    entry = tar.nextEntry
                 }
             }
         }

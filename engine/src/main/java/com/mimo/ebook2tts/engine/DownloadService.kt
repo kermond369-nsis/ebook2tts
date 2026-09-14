@@ -38,7 +38,7 @@ class DownloadService : Service() {
                     ConfigStore.notifyStatus(this@DownloadService, "DL|$stage|$p")
                 }
 
-                override fun onSuccess(id: String) {
+                override fun onSuccess(modelId: String) {
                     updateNotification(spec.label, "完成")
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()

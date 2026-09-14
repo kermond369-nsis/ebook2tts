@@ -244,9 +244,10 @@ class SynthesisCoordinator(
         val t0 = System.currentTimeMillis()
 
         // 红线 4：推理只允许在 :tts_service 进程（主进程零推理）
-        if (!isEngineProcessNow()) {
+        if (!isEngineProcess) {
             Log.e(TAG, "ABORT|INFERENCE_OUTSIDE_ENGINE_PROCESS|req=$reqId")
             callback.error(TextToSpeechErrors.SYNTHESIS)
+            callback.done() // AOSP 契约：start 前的 error 必须后接 done 才派发 onError
             return SynthResult(false, true, false, 24000)
         }
 
@@ -267,6 +268,7 @@ class SynthesisCoordinator(
                 TextToSpeechErrors.SYNTHESIS
             }
             callback.error(err)
+            callback.done() // AOSP 契约：同上，否则客户端永久挂起
             return SynthResult(false, true, false, 24000)
         }
 
@@ -278,6 +280,7 @@ class SynthesisCoordinator(
 
         if (!sm.onSynthesizeStart()) {
             callback.error(TextToSpeechErrors.SYNTHESIS)
+            callback.done() // AOSP 契约：同上
             return SynthResult(false, true, false, engine.sampleRate)
         }
 
@@ -311,25 +314,33 @@ class SynthesisCoordinator(
                     aborted.set(true)
                     return false
                 }
-                if (!started.get()) {
-                    val rc = callback.start(engine.sampleRate, AudioFormat.ENCODING_PCM_16BIT, 1)
+                try {
+                    if (!started.get()) {
+                        val rc = callback.start(engine.sampleRate, AudioFormat.ENCODING_PCM_16BIT, 1)
+                        if (rc != TextToSpeechErrors.SUCCESS) {
+                            aborted.set(true)
+                            return false
+                        }
+                        started.set(true)
+                    }
+                    val end = minOf(i + MAX_AUDIO_BYTES, pcm.size)
+                    val slice = if (i == 0 && end == pcm.size) pcm else pcm.copyOfRange(i, end)
+                    val rc = callback.audioAvailable(slice, 0, slice.size)
                     if (rc != TextToSpeechErrors.SUCCESS) {
                         aborted.set(true)
                         return false
                     }
-                    started.set(true)
-                }
-                val end = minOf(i + MAX_AUDIO_BYTES, pcm.size)
-                val slice = if (i == 0 && end == pcm.size) pcm else pcm.copyOfRange(i, end)
-                val rc = callback.audioAvailable(slice, 0, slice.size)
-                if (rc != TextToSpeechErrors.SUCCESS) {
+                    if (!anyAudio.getAndSet(true)) firstPushAt.set(System.currentTimeMillis())
+                    chunksPushed.incrementAndGet()
+                    bytesPushed.addAndGet(slice.size.toLong())
+                    i = end
+                } catch (e: Exception) {
+                    // Binder DeadObjectException / 框架 IllegalArgumentException：必须置 aborted，
+                    // 否则合成线程在 enqueue 超时循环里空转（agy 复核【11】-2）
+                    Log.e(TAG, "ABORT|IPC_PUSH_FAIL|req=$reqId", e)
                     aborted.set(true)
                     return false
                 }
-                if (!anyAudio.getAndSet(true)) firstPushAt.set(System.currentTimeMillis())
-                chunksPushed.incrementAndGet()
-                bytesPushed.addAndGet(slice.size.toLong())
-                i = end
             }
             return true
         }
@@ -366,6 +377,9 @@ class SynthesisCoordinator(
                 }
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
+            } catch (t: Throwable) {
+                Log.e(TAG, "ABORT|PUSHER_DIED|req=$reqId", t)
+                aborted.set(true)
             }
         }
 
@@ -449,6 +463,7 @@ class SynthesisCoordinator(
             }
             runCatching { queue.offer(END) }
             runCatching { pusher.get(PUSH_JOIN_MS, TimeUnit.MILLISECONDS) }
+                .onFailure { pusher.cancel(true) } // 超时/中断：中断推手，防污染单线程执行器
         }
 
         sm.onSynthesizeEnd()
@@ -481,6 +496,7 @@ class SynthesisCoordinator(
             if (text.isNotBlank() && segments.any { it.kind != SegmentKind.EMPTY }) {
                 // 红线 3：非空文本零音频必须 error 可见（假成功禁令）
                 callback.error(TextToSpeechErrors.SYNTHESIS)
+                callback.done() // AOSP 契约：同上
                 return SynthResult(false, true, false, sr)
             }
             callback.start(sr, AudioFormat.ENCODING_PCM_16BIT, 1)
@@ -523,10 +539,10 @@ class SynthesisCoordinator(
         }
     }
 
-    /** 当前进程是否为 :tts_service（红线 4） */
-    private fun isEngineProcessNow(): Boolean {
+    /** 当前进程是否为 :tts_service（红线 4）。进程身份在生命周期内不可变 → 懒加载一次，合成路径零 IO。 */
+    private val isEngineProcess: Boolean by lazy {
         val cmdline = runCatching { File("/proc/self/cmdline").readBytes() }.getOrNull()
-        return ProcessNames.isEngineProcess(ProcessNames.parseCmdline(cmdline))
+        ProcessNames.isEngineProcess(ProcessNames.parseCmdline(cmdline))
     }
 }
 

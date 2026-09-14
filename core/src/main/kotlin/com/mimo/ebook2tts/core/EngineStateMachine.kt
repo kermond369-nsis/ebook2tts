@@ -88,7 +88,8 @@ class EngineStateMachine {
     }
 
     fun canAcceptRequest(): Boolean = when (state) {
-        EngineState.READY, EngineState.INITIALIZING, EngineState.SYNTHESIZING -> true
+        // RELOADING 亦接单（与 onSynthesizeStart 一致）：阅读器切句时不得因换装丢句
+        EngineState.READY, EngineState.INITIALIZING, EngineState.SYNTHESIZING, EngineState.RELOADING -> true
         else -> false
     }
 }

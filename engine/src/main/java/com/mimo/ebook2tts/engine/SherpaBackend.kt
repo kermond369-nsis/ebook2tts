@@ -108,7 +108,6 @@ class SherpaBackend(
 
     private fun modelReady(): Boolean {
         val model = File(modelDir, spec.files.modelName)
-        val completed = File(modelDir, ".completed")
         return model.exists() && model.length() > 0
         // .completed 可由迁移回填；有模型文件即可尝试加载
     }
@@ -129,7 +128,7 @@ class SherpaBackend(
         var stopped = false
         try {
             engine.generateWithCallback(text, speakerId, speed) { samples ->
-                if (samples == null || samples.isEmpty()) return@generateWithCallback 1
+                if (samples.isEmpty()) return@generateWithCallback 1
                 val cont = onPcm(samples)
                 if (!cont) {
                     stopped = true

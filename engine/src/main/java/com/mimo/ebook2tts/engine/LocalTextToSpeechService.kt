@@ -105,6 +105,9 @@ class LocalTextToSpeechService : TextToSpeechService() {
                 Voice.LATENCY_NORMAL,
                 false,
                 // 离线引擎特性声明（全本地合成，无需网络）
+                // KEY_FEATURE_EMBEDDED_SYNTHESIS 自 API 34 起 deprecated，
+                // 但仍是框架与旧客户端识别“离线合成”的规范特性键，故保留。
+                @Suppress("DEPRECATION")
                 mutableSetOf(TextToSpeech.Engine.KEY_FEATURE_EMBEDDED_SYNTHESIS)
             )
         }
@@ -134,6 +137,7 @@ class LocalTextToSpeechService : TextToSpeechService() {
     }
 
     override fun onSynthesizeText(request: SynthesisRequest, callback: SynthesisCallback) {
+        @Suppress("DEPRECATION") // 旧客户端可能只填 text（API 21+ 仍兼容）
         val raw = request.charSequenceText?.toString() ?: request.text ?: ""
         val rate = request.speechRate
         val voice = request.voiceName

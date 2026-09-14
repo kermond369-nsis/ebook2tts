@@ -2,6 +2,7 @@ package com.mimo.ebook2tts.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -149,6 +150,18 @@ class EngineStateMachineTest {
         sm.onSynthesizeEnd()
         assertEquals(EngineState.RELOADING, sm.state)
     }
+
+    @Test
+    fun reloading_acceptsRequests() {
+        // RELOADING 必须与 onSynthesizeStart 口径一致：换装接缝不得吞掉阅读器的下一句
+        val sm = EngineStateMachine()
+        sm.onInitSuccess()
+        sm.requestBackendReload()
+        assertEquals(EngineState.RELOADING, sm.state)
+        assertTrue(sm.canAcceptRequest())
+        assertTrue(sm.onSynthesizeStart())
+    }
+
 }
 
 class PathSafetyTest {
@@ -203,5 +216,28 @@ class PcmChunkerTest {
     fun silence_positive() {
         val s = PcmChunker.silenceMs(120, 1.0f, 24000)
         assertTrue(s.size > 1000)
+    }
+
+    @Test
+    fun fade_onlyAtRequestEdges() {
+        // PCM16 LE 常量样本 100（帧 = 低字节 100、高字节 0）；3ms@24kHz = 144 字节淡化区（红线 6）
+        val pcm = ByteArray(2_000) { if (it % 2 == 0) 100 else 0 }
+        val head = PcmChunker.fadeHead(pcm, 24000, 3)
+        assertEquals(pcm.size, head.size)
+        assertEquals(0, head[0].toInt()) // 首帧归零
+        assertEquals(100, head[200].toInt()) // 淡化区之外原样
+        val tail = PcmChunker.fadeTail(pcm, 24000, 3)
+        assertTrue((tail[tail.size - 2].toInt() and 0xff) < 100) // 末帧被衰减
+        assertEquals(100, tail[200].toInt())
+        val both = PcmChunker.fadeEdges(pcm, 24000, 3)
+        assertEquals(0, both[0].toInt())
+        assertEquals(100, both[1_000].toInt()) // 中间零处理
+    }
+
+    @Test
+    fun fade_shortInput_untouched() {
+        val tiny = ByteArray(4) { 7 }
+        assertSame(tiny, PcmChunker.fadeHead(tiny, 24000, 3))
+        assertSame(tiny, PcmChunker.fadeTail(tiny, 24000, 3))
     }
 }
