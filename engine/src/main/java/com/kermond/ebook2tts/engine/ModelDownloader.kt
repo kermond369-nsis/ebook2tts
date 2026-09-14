@@ -6,6 +6,7 @@ import com.kermond.ebook2tts.core.ModelCatalog
 import com.kermond.ebook2tts.core.ModelLayout
 import com.kermond.ebook2tts.core.ModelSpec
 import com.kermond.ebook2tts.core.ModelLimits
+import com.kermond.ebook2tts.core.NetPolicy
 import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
@@ -70,6 +71,12 @@ class ModelDownloader(private val context: Context) {
 
     fun downloadAndInstall(spec: ModelSpec, progress: Progress) {
         cancelled = false
+        // 网络策略（core.NetPolicy）：蜂窝 + 未允许数据流量 → 禁止模型下载（含清单拉取/测速）
+        if (!NetPolicy.allowsNetwork(ConfigStore.netAllowMobileData(), NetState.onCellular(context))) {
+            Log.w(TAG, "DOWNLOAD_BLOCKED|${spec.id}|reason=${NetPolicy.REASON_CELLULAR_DISALLOWED}")
+            progress.onError("当前使用移动数据，已暂停下载。请在 Wi-Fi 下重试，或在设置中开启「允许使用数据流量」")
+            return
+        }
         val s = resolve(spec)
         try {
             if (!checkSpace(s)) {

@@ -10,8 +10,10 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.kermond.ebook2tts.core.ModelCatalog
+import com.kermond.ebook2tts.core.NetPolicy
 import java.util.concurrent.Executors
 
 /**
@@ -31,6 +33,14 @@ class DownloadService : Service() {
         val dl = ModelDownloader(this)
         downloader = dl
         executor.execute {
+            // 网络策略（core.NetPolicy）：蜂窝 + 未允许数据流量 → 不拉清单、不下载
+            if (!NetPolicy.allowsNetwork(ConfigStore.netAllowMobileData(), NetState.onCellular(this@DownloadService))) {
+                Log.w(TAG, "DOWNLOAD_BLOCKED|$modelId|reason=${NetPolicy.REASON_CELLULAR_DISALLOWED}")
+                updateNotification("模型下载", "使用移动数据，已暂停")
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return@execute
+            }
             // IM-201：清单驱动（远程清单 → 缓存 → 内置兜底）；在工作线程解析，避免 NetworkOnMainThread
             val spec = runCatching { ModelRegistry.byId(this@DownloadService, modelId) }
                 .getOrDefault(ModelCatalog.byId(modelId))
@@ -112,6 +122,7 @@ class DownloadService : Service() {
         const val EXTRA_MODEL_ID = "model_id"
         private const val CHANNEL = "download"
         private const val FOREGROUND_ID = 42
+        private const val TAG = "DownloadService"
 
         fun start(context: Context, modelId: String) {
             val i = Intent(context, DownloadService::class.java)

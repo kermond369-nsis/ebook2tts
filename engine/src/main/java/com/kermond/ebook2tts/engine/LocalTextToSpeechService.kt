@@ -29,7 +29,7 @@ class LocalTextToSpeechService : TextToSpeechService() {
     override fun onCreate() {
         super.onCreate()
         MigrationHelper.checkAndMigrate(this)
-        coordinator = SynthesisCoordinator(filesDir)
+        coordinator = SynthesisCoordinator(this)
         coordinator.initAsync()
         ConfigStore.setStatusState("INITIALIZING")
         ConfigStore.notifyStatus(this, "INIT")

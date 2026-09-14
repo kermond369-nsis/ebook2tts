@@ -1,11 +1,13 @@
 package com.kermond.ebook2tts.engine
 
+import android.content.Context
 import android.media.AudioFormat
 import android.speech.tts.SynthesisCallback
 import android.util.Log
 import com.kermond.ebook2tts.core.EngineState
 import com.kermond.ebook2tts.core.EngineStateMachine
 import com.kermond.ebook2tts.core.ModelCatalog
+import com.kermond.ebook2tts.core.OnlineSettings
 import com.kermond.ebook2tts.core.PcmChunker
 import com.kermond.ebook2tts.core.ProcessNames
 import com.kermond.ebook2tts.core.RoleAssigner
@@ -32,7 +34,10 @@ import kotlin.concurrent.withLock
  * 设计要点：
  * - **真流式**（ADR-003）：native 逐块回调 → 有界队列 → 独立推送线程立即 audioAvailable，
  *   不再"整句拼完才推送"（首字延迟）。
- * - **锁纪律**（红线 7）：守卫锁只包住 native 调用（合成/换装/释放/试听），IPC 推送在推手线程完成。
+ * - **双后端请求级热切换**：请求开始时选定本地 sherpa 或在线 MiMo（不每句切换）；
+ *   在线失败**静默回落本地**（`ONLINE|fallback=local|reason=..`），绝不为内部原因中止在途朗读
+ *   （AR-§4.8.3 红线）；在线关闭时本地路径零额外开销（无网络、无 await、无新增线程）。
+ * - **锁纪律**（红线 7）：守卫锁只包住 native/在线调用（合成/换装/释放/试听），IPC 推送在推手线程完成。
  * - **微淡化**（红线 6）：仅请求首块头部（fadeHead）与末块尾部（fadeTail）；单块请求用 fadeEdges。
  * - **有界销毁**（ADR-008）：置停止 → tryLock(≤3s) → 锁内释放；超时**不释放**（防 UAF），交进程回收。
  * - **假成功禁令**（红线 3）：非空文本零音频必须 error 可见。
@@ -40,8 +45,9 @@ import kotlin.concurrent.withLock
  * 仅在 :tts_service 进程使用（红线 4 硬断言）。
  */
 class SynthesisCoordinator(
-    private val filesDir: File,
+    private val context: Context,
 ) {
+    private val filesDir: File = context.filesDir
     companion object {
         private const val TAG = "SynthCoord"
         private const val MAX_AUDIO_BYTES = 8192
@@ -220,6 +226,37 @@ class SynthesisCoordinator(
         backend = null
     }
 
+    /**
+     * 请求级在线选择（请求开始时调用一次；AR-§4.8.3 分级生效 / ADR-009）。
+     *
+     * 开销纪律：在线关闭 → 单次 MMKV 布尔读后立即返回 null，其余配置键零触达，
+     * 无网络探测、无 await、无线程/锁变化 —— 本地路径保持既有行为。
+     * 开启但不可用（无 Key / Token Plan 未确认 / 蜂窝未允许）→ 打点回落本地。
+     */
+    private fun selectOnline(): BackendChoice.Online? {
+        if (!ConfigStore.onlineEnabled()) return null
+        return when (
+            val choice = OnlineSelector.select(
+                onlineEnabled = true, // 已在上层短路（在线关闭零额外动作）
+                apiKey = ConfigStore.onlineApiKey(),
+                keyKind = ConfigStore.onlineKeyKind(),
+                baseUrl = ConfigStore.onlineBaseUrl(),
+                model = ConfigStore.onlineModel(),
+                voice = ConfigStore.onlineVoice(),
+                style = ConfigStore.onlineStyle(),
+                tokenPlanAccepted = ConfigStore.onlineTokenPlanAccepted(),
+                allowMobileData = ConfigStore.netAllowMobileData(),
+                onCellular = NetState.onCellular(context),
+            )
+        ) {
+            is BackendChoice.Online -> choice
+            is BackendChoice.Local -> {
+                Log.i(TAG, "ONLINE|fallback=local|reason=${choice.reason}")
+                null
+            }
+        }
+    }
+
     data class SynthResult(
         val started: Boolean,
         val error: Boolean,
@@ -286,6 +323,21 @@ class SynthesisCoordinator(
             return SynthResult(false, true, false, engine.sampleRate)
         }
 
+        // ---- 请求级后端接缝（ADR-009 分级生效：请求开始时决定，本请求内不每句切换）----
+        // 在线关闭时 selectOnline() 仅一次 MMKV 内存读即返回 null：无网络、无 await、无线程/锁变化。
+        val onlineChoice = selectOnline()
+        val onlineRequest = onlineChoice?.request
+        var fallbackLogged = false
+        if (onlineRequest != null) {
+            Log.i(
+                TAG,
+                "ONLINE|chosen=online|model=${onlineRequest.model}" +
+                    "|voice=${onlineRequest.voice}|sr=${OnlineSettings.SAMPLE_RATE}"
+            )
+            onlineChoice.warning?.let { Log.w(TAG, "ONLINE|warn=key_kind_mismatch|$it") }
+        }
+        var useOnline = onlineRequest != null
+
         val pool = voicePool
         val mode = if (ConfigStore.roleMode() == "respectReader") {
             RoleMode.RESPECT_READER
@@ -304,10 +356,40 @@ class SynthesisCoordinator(
         val queue = ArrayBlockingQueue<ByteArray>(QUEUE_CAPACITY)
         val started = AtomicBoolean(false)
         val anyAudio = AtomicBoolean(false)
+        /** 是否已有音频进入推流队列（在线回落时机判定；含排队未推送） */
+        val audioCommitted = AtomicBoolean(false)
         val aborted = AtomicBoolean(false)
         val chunksPushed = AtomicInteger(0)
         val bytesPushed = AtomicLong(0L)
         val firstPushAt = AtomicLong(0L)
+
+        /** callback.start 的采样率＝实际产出首个音频的后端采样率（在线 24kHz / 本地=模型实测） */
+        var streamSr = if (useOnline) OnlineSettings.SAMPLE_RATE else engine.sampleRate
+        var onlineTtfbLogged = false
+
+        /** 在线失败 → 回落决策（纯逻辑在 OnlineFallback；此处执行副作用与打点） */
+        fun onOnlineFailure(failure: OnlineOutcome.Failed) {
+            val action = OnlineFallback.decide(
+                anyAudioEnqueued = audioCommitted.get(),
+                localSampleRate = engine.sampleRate,
+                onlineSampleRate = OnlineSettings.SAMPLE_RATE,
+            )
+            if (!fallbackLogged) {
+                fallbackLogged = true
+                val deferred = if (action == FallbackAction.STAY_ONLINE) "|deferred=sr_mismatch" else ""
+                Log.w(
+                    TAG,
+                    "ONLINE|fallback=local|reason=${failure.reason}$deferred" +
+                        "|summary=${failure.summary.take(160)}"
+                )
+            }
+            if (action == FallbackAction.RESTART_LOCAL || action == FallbackAction.SWITCH_LOCAL) {
+                // 无声切换：尚无任何音频（尚未 callback.start），或采样率一致可无缝续播
+                useOnline = false
+                streamSr = engine.sampleRate
+            }
+            // STAY_ONLINE：起播后采样率不一致无法换源 → 本请求保持在线，按零音频降级链兜底
+        }
 
         fun pushBytes(pcm: ByteArray): Boolean {
             var i = 0
@@ -318,7 +400,7 @@ class SynthesisCoordinator(
                 }
                 try {
                     if (!started.get()) {
-                        val rc = callback.start(engine.sampleRate, AudioFormat.ENCODING_PCM_16BIT, 1)
+                        val rc = callback.start(streamSr, AudioFormat.ENCODING_PCM_16BIT, 1)
                         if (rc != TextToSpeechErrors.SUCCESS) {
                             aborted.set(true)
                             return false
@@ -359,7 +441,7 @@ class SynthesisCoordinator(
                     if (prev != null) {
                         val out = if (firstPending) {
                             firstPending = false
-                            PcmChunker.fadeHead(prev, engine.sampleRate, 3)
+                            PcmChunker.fadeHead(prev, streamSr, 3)
                         } else {
                             prev
                         }
@@ -371,9 +453,9 @@ class SynthesisCoordinator(
                 if (last != null) {
                     val out = if (firstPending) {
                         // 单块请求：首尾都是它
-                        PcmChunker.fadeEdges(last, engine.sampleRate, 3)
+                        PcmChunker.fadeEdges(last, streamSr, 3)
                     } else {
-                        PcmChunker.fadeTail(last, engine.sampleRate, 3)
+                        PcmChunker.fadeTail(last, streamSr, 3)
                     }
                     pushBytes(out)
                 }
@@ -385,18 +467,36 @@ class SynthesisCoordinator(
             }
         }
 
-        // 供给：合成线程持守卫锁调用 native；IPC 由推手完成
+        // 供给：合成线程持守卫锁调用 native/在线；IPC 由推手完成
         fun enqueue(pcm: ByteArray) {
             if (pcm.isEmpty()) return
             while (!isStopped() && !aborted.get()) {
                 try {
-                    if (queue.offer(pcm, 200, TimeUnit.MILLISECONDS)) return
+                    if (queue.offer(pcm, 200, TimeUnit.MILLISECONDS)) {
+                        audioCommitted.set(true)
+                        return
+                    }
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                     return
                 }
             }
         }
+
+        /** 在线单段合成（持守卫锁串行；网络 IO 在 OnlineBackend 工作线程，合成线程零 IO） */
+        fun synthesizeOnlineSegment(request: OnlineRequest, text: String): OnlineOutcome =
+            guard.withLock {
+                OnlineBackendHolder.get().synthesize(
+                    request = request,
+                    text = text,
+                    onPcm = onPcm@{ pcm ->
+                        if (isStopped() || aborted.get()) return@onPcm false
+                        enqueue(pcm)
+                        !(isStopped() || aborted.get())
+                    },
+                    isCancelled = { isStopped() || aborted.get() },
+                )
+            }
 
         try {
             for (seg in segments) {
@@ -412,28 +512,43 @@ class SynthesisCoordinator(
                 }
 
                 var produced = false
-                guard.withLock {
-                    engine.generateStreaming(spoken, voice.speakerId, speed) { samples ->
-                        if (isStopped() || aborted.get()) return@generateStreaming false
-                        val pcm = PcmChunker.floatToPcm16(samples)
-                        if (pcm.isEmpty()) return@generateStreaming true
-                        produced = true
-                        enqueue(pcm)
-                        !(isStopped() || aborted.get())
+                if (useOnline && onlineRequest != null) {
+                    when (val outcome = synthesizeOnlineSegment(onlineRequest, spoken)) {
+                        is OnlineOutcome.Ok -> {
+                            produced = true
+                            if (!onlineTtfbLogged && outcome.ttfbMs >= 0L) {
+                                onlineTtfbLogged = true
+                                Log.i(TAG, "ONLINE|ttfb_ms=${outcome.ttfbMs}")
+                            }
+                        }
+                        OnlineOutcome.Cancelled -> Unit // 停止/中止：循环顶部统一退出
+                        is OnlineOutcome.Failed -> onOnlineFailure(outcome)
                     }
                 }
-                if (!produced) {
-                    // 字符强清洗重试（AR-§4.8.6；G2P 未映射字符是零音频唯一确定性根因）
-                    val cleaned = TextClean.hardClean(spoken)
-                    if (cleaned.isNotBlank()) {
-                        guard.withLock {
-                            engine.generateStreaming(cleaned, voice.speakerId, speed) { samples ->
-                                if (isStopped() || aborted.get()) return@generateStreaming false
-                                val pcm = PcmChunker.floatToPcm16(samples)
-                                if (pcm.isEmpty()) return@generateStreaming true
-                                produced = true
-                                enqueue(pcm)
-                                !(isStopped() || aborted.get())
+                if (!produced && !useOnline) {
+                    guard.withLock {
+                        engine.generateStreaming(spoken, voice.speakerId, speed) { samples ->
+                            if (isStopped() || aborted.get()) return@generateStreaming false
+                            val pcm = PcmChunker.floatToPcm16(samples)
+                            if (pcm.isEmpty()) return@generateStreaming true
+                            produced = true
+                            enqueue(pcm)
+                            !(isStopped() || aborted.get())
+                        }
+                    }
+                    if (!produced) {
+                        // 字符强清洗重试（AR-§4.8.6；G2P 未映射字符是零音频唯一确定性根因）
+                        val cleaned = TextClean.hardClean(spoken)
+                        if (cleaned.isNotBlank()) {
+                            guard.withLock {
+                                engine.generateStreaming(cleaned, voice.speakerId, speed) { samples ->
+                                    if (isStopped() || aborted.get()) return@generateStreaming false
+                                    val pcm = PcmChunker.floatToPcm16(samples)
+                                    if (pcm.isEmpty()) return@generateStreaming true
+                                    produced = true
+                                    enqueue(pcm)
+                                    !(isStopped() || aborted.get())
+                                }
                             }
                         }
                     }
@@ -444,10 +559,10 @@ class SynthesisCoordinator(
                     Log.w(TAG, "WARN|DROP_UNIT|$dropUnits|len=${spoken.length}")
                     if (anyAudio.get()) {
                         // 保段序静音占位（绝不因单元失败中止在途音频，红线 2）
-                        enqueue(PcmChunker.silenceMs(150, speed, engine.sampleRate))
+                        enqueue(PcmChunker.silenceMs(150, speed, streamSr))
                     }
                 } else if (seg.kind != SegmentKind.TITLE) {
-                    enqueue(PcmChunker.silenceMs(120, speed, engine.sampleRate))
+                    enqueue(PcmChunker.silenceMs(120, speed, streamSr))
                 }
             }
         } catch (t: Throwable) {

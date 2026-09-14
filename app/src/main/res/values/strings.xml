@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">书声本地</string>
-    <string name="author">Kermond</string>
-    <string name="talkback_notice">本引擎定位于小说/阅读类 App 长文本朗读，不针对无障碍屏幕阅读场景优化。请勿设为全局 TalkBack 语音。</string>
-</resources>
