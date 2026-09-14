@@ -137,7 +137,6 @@ class LocalTextToSpeechService : TextToSpeechService() {
         val raw = request.charSequenceText?.toString() ?: request.text ?: ""
         val rate = request.speechRate
         val voice = request.voiceName
-        coordinator.resetStop()
         val result = coordinator.synthesize(raw, rate, voice, callback)
         Log.i(
             TAG,

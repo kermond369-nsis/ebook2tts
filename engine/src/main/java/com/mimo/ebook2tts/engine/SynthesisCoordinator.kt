@@ -49,6 +49,9 @@ class SynthesisCoordinator(
         private const val READY_WAIT_MS = 1500L
         private const val SHUTDOWN_WAIT_MS = 3000L
         private const val PUSH_JOIN_MS = 60_000L
+
+        /** 陈旧 stop 宽限窗口（见 requestStop 处注释） */
+        private const val STOP_GRACE_MS = 150L
         private val END = ByteArray(0) // 毒丸
     }
 
@@ -60,8 +63,23 @@ class SynthesisCoordinator(
     private val readyCond = readyLock.newCondition()
 
     private val sm = EngineStateMachine()
-    private val stopped = AtomicBoolean(false)
+
+    /**
+     * 停止语义（AOSP 实证，TextToSpeechService.java:1057-1072）：
+     * `onStop()` 只在"存在活跃合成回调"时被调用，且**由发起 stop 的线程同步执行**——
+     * 因此阅读器逐句 `QUEUE_FLUSH` 时，框架 flush 上一条的 `onStop()` 会与本条请求的
+     * 启动**并发**到达。若照单全收，就会把新请求当"被停止"处理 → **跳句**。
+     *
+     * 规则：请求启动后的 [STOP_GRACE_MS] 窗口内到达的 stop 视为"冲刷上一条"（忽略）；
+     * 窗口之后到达的 stop 才是对本条的真实停止意图。
+     */
     private val reqSeq = AtomicInteger(0)
+
+    @Volatile
+    private var stopAtMs = 0L
+
+    @Volatile
+    private var destroyed = false
 
     private val reloadExecutor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "tts-reload").apply { isDaemon = true }
@@ -89,9 +107,10 @@ class SynthesisCoordinator(
         reloadExecutor.execute { reloadInternal() }
     }
 
-    fun resetStop() = stopped.set(false)
-
-    fun requestStop() = stopped.set(true)
+    /** 记录停止意图时刻；是否生效由各请求按启动时间自行判定（见 STOP_GRACE_MS） */
+    fun requestStop() {
+        stopAtMs = android.os.SystemClock.uptimeMillis()
+    }
 
     fun resetRoles() = roleAssigner.reset()
 
@@ -105,7 +124,7 @@ class SynthesisCoordinator(
                 Thread.currentThread().interrupt()
                 return@execute
             }
-            if (stopped.get()) return@execute
+            if (destroyed) return@execute
             sm.requestBackendReload()
             if (sm.state != EngineState.SYNTHESIZING) {
                 reloadInternal()
@@ -119,7 +138,7 @@ class SynthesisCoordinator(
      * tryLock 超时**不释放**，避免 native 仍在使用时释放导致 UAF；交由进程退出回收。
      */
     fun shutdown() {
-        stopped.set(true)
+        destroyed = true
         reloadExecutor.shutdownNow()
         pushExecutor.shutdownNow()
         var locked = false
@@ -217,8 +236,11 @@ class SynthesisCoordinator(
         explicitVoiceName: String?,
         callback: SynthesisCallback,
     ): SynthResult {
-        stopped.set(false)
         val reqId = reqSeq.incrementAndGet()
+        val startedAtMs = android.os.SystemClock.uptimeMillis()
+        /** 本请求是否应停止：销毁，或"启动后超过宽限窗口才到达的 stop" */
+        fun isStopped(): Boolean =
+            destroyed || (stopAtMs - startedAtMs >= STOP_GRACE_MS)
         val t0 = System.currentTimeMillis()
 
         // 红线 4：推理只允许在 :tts_service 进程（主进程零推理）
@@ -229,8 +251,16 @@ class SynthesisCoordinator(
         }
 
         val text = TextClean.normalize(rawText ?: "")
-        val engine = awaitBackend()
+        val engine = awaitBackend { isStopped() }
         if (engine == null) {
+            val reason = when {
+                destroyed -> "destroyed"
+                stopAtMs - startedAtMs >= STOP_GRACE_MS -> "stopped"
+                sm.state == EngineState.NO_MODEL -> "no_model"
+                sm.state == EngineState.ERROR -> "engine_error"
+                else -> "backend_not_ready"
+            }
+            Log.w(TAG, "WARN|SYNTH_REJECT|req=$reqId|reason=$reason|state=${sm.state}")
             val err = if (sm.state == EngineState.NO_MODEL) {
                 TextToSpeechErrors.NOT_INSTALLED_YET
             } else {
@@ -277,7 +307,7 @@ class SynthesisCoordinator(
         fun pushBytes(pcm: ByteArray): Boolean {
             var i = 0
             while (i < pcm.size) {
-                if (stopped.get()) {
+                if (isStopped()) {
                     aborted.set(true)
                     return false
                 }
@@ -342,7 +372,7 @@ class SynthesisCoordinator(
         // 供给：合成线程持守卫锁调用 native；IPC 由推手完成
         fun enqueue(pcm: ByteArray) {
             if (pcm.isEmpty()) return
-            while (!stopped.get() && !aborted.get()) {
+            while (!isStopped() && !aborted.get()) {
                 try {
                     if (queue.offer(pcm, 200, TimeUnit.MILLISECONDS)) return
                 } catch (_: InterruptedException) {
@@ -354,7 +384,7 @@ class SynthesisCoordinator(
 
         try {
             for (seg in segments) {
-                if (stopped.get() || aborted.get()) break
+                if (isStopped() || aborted.get()) break
                 if (seg.kind == SegmentKind.EMPTY) continue
                 val spoken = prepareSpeakText(seg)
                 if (spoken.isBlank()) continue
@@ -368,12 +398,12 @@ class SynthesisCoordinator(
                 var produced = false
                 guard.withLock {
                     engine.generateStreaming(spoken, voice.speakerId, speed) { samples ->
-                        if (stopped.get() || aborted.get()) return@generateStreaming false
+                        if (isStopped() || aborted.get()) return@generateStreaming false
                         val pcm = PcmChunker.floatToPcm16(samples)
                         if (pcm.isEmpty()) return@generateStreaming true
                         produced = true
                         enqueue(pcm)
-                        !(stopped.get() || aborted.get())
+                        !(isStopped() || aborted.get())
                     }
                 }
                 if (!produced) {
@@ -382,12 +412,12 @@ class SynthesisCoordinator(
                     if (cleaned.isNotBlank()) {
                         guard.withLock {
                             engine.generateStreaming(cleaned, voice.speakerId, speed) { samples ->
-                                if (stopped.get() || aborted.get()) return@generateStreaming false
+                                if (isStopped() || aborted.get()) return@generateStreaming false
                                 val pcm = PcmChunker.floatToPcm16(samples)
                                 if (pcm.isEmpty()) return@generateStreaming true
                                 produced = true
                                 enqueue(pcm)
-                                !(stopped.get() || aborted.get())
+                                !(isStopped() || aborted.get())
                             }
                         }
                     }
@@ -424,7 +454,7 @@ class SynthesisCoordinator(
         sm.onSynthesizeEnd()
 
         // 接缝换装（ADR-009）：在请求结束窗口完成 swap，绝不在请求中打断
-        if (sm.pendingBackendReload && !stopped.get()) {
+        if (sm.pendingBackendReload && !isStopped()) {
             reloadExecutor.execute { reloadInternal() }
         }
 
@@ -443,7 +473,7 @@ class SynthesisCoordinator(
                 "|est_ms=${bytesPushed.get() / 2L * 1000L / sr.coerceAtLeast(1)}"
         )
 
-        if (stopped.get() && !started.get()) {
+        if (isStopped() && !started.get()) {
             // 中止且从未 start：静默（不 done、不 error）
             return SynthResult(false, false, true, sr)
         }
@@ -472,14 +502,14 @@ class SynthesisCoordinator(
     }
 
     /** 有界等待后端就绪（条件变量，非 sleep 轮询；红线 7） */
-    private fun awaitBackend(): SherpaBackend? {
+    private fun awaitBackend(isStopped: () -> Boolean): SherpaBackend? {
         backend?.takeIf { it.isReady() }?.let { return it }
         if (sm.state == EngineState.NO_MODEL || sm.state == EngineState.ERROR) return null
         readyLock.withLock {
             val deadline = System.nanoTime() + READY_WAIT_MS * 1_000_000L
             while (true) {
                 backend?.takeIf { it.isReady() }?.let { return it }
-                if (stopped.get()) return null
+                if (isStopped()) return null
                 if (sm.state == EngineState.NO_MODEL || sm.state == EngineState.ERROR) return null
                 val remain = deadline - System.nanoTime()
                 if (remain <= 0L) return null
