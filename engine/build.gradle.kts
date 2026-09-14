@@ -62,3 +62,18 @@ dependencies {
     // 本地 HTTP 服务器测试替身（IM-202 续传/整包语义；OkHttp 官方测试组件）
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
+
+/**
+ * sherpa-onnx JNI 以**精确方法签名**反射回调 Kotlin 函数
+ * （期望 `SherpaBackend$$ExternalSyntheticLambda0.invoke([F)Ljava/lang/Integer;`）。
+ * 新版工具链（KGP 2.x）可能把 lambda 编译成 invokedynamic/不同描述符，导致
+ * `JNI DETECTED ERROR: NoSuchMethodError ... invoke([F)Ljava/lang/Integer;` 并在合成线程 SIGABRT。
+ * 故显式固定为 class-based lambda 与 1.9 语言级别，保证与预编译 native 库的调用约定一致。
+ */
+kotlin {
+    compilerOptions {
+        languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_1_9)
+        apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_1_9)
+        freeCompilerArgs.add("-Xlambdas=class")
+    }
+}

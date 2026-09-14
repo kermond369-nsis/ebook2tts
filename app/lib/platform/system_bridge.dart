@@ -23,4 +23,30 @@ class SystemBridge {
       return 'failed';
     }
   }
+
+  /// 对照朗读：经系统 TTS 显式绑定本 App 的引擎朗读一段样例。
+  ///
+  /// 用途：真机 A/B 对照（本地 vs 在线）与「引擎在 :tts_service 进程是否出声」的验证；
+  /// **不写配置、不改全局旁白**，仅等价于外部阅读器调用本引擎。
+  static Future<bool> speakSample(String text) async {
+    try {
+      await _channel.invokeMethod<void>('speakSample', {'text': text});
+      return true;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
+  /// 停止对照朗读。
+  static Future<void> stopSample() async {
+    try {
+      await _channel.invokeMethod<void>('stopSample');
+    } on PlatformException {
+      // 忽略：停止失败不影响界面
+    } on MissingPluginException {
+      // 忽略
+    }
+  }
 }

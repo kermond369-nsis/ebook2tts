@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../platform/system_bridge.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/common.dart';
@@ -72,6 +73,43 @@ class DiagnosticsPage extends ConsumerWidget {
               KeyValueRow(
                 label: '在线朗读',
                 value: status == null ? '正在读取…' : onlineStateLabel(status.online),
+              ),
+            ],
+          ),
+        ),
+        SectionCard(
+          title: '对照朗读（真机 A/B）',
+          subtitle: '经系统朗读通道调用本机引擎朗读一段样例：开着在线朗读时走在线合成，关闭时走本机合成。'
+              '不改旁白、不写配置；读完回到本页可看「最近一次朗读数据」。',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  FilledButton.icon(
+                    onPressed: () async {
+                      final ok = await SystemBridge.speakSample(
+                        '夜深了，台灯把书桌照成一小块温暖的岛。他翻开书，让文字顺着目光流进心里。',
+                      );
+                      if (context.mounted) {
+                        showAppSnack(context, ok ? '已交给引擎朗读，稍候看下方数据' : '调用失败：未找到本机引擎');
+                      }
+                    },
+                    icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                    label: const Text('朗读一次'),
+                  ),
+                  const SizedBox(width: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => SystemBridge.stopSample(),
+                    icon: const Icon(Icons.stop_rounded, size: 18),
+                    label: const Text('停止'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '提示：若列表为空，请先在系统「文字转语音」里把「书声本地」设为默认引擎。',
+                style: TextStyle(fontSize: 12, color: Tokens.textDim, height: 1.5),
               ),
             ],
           ),

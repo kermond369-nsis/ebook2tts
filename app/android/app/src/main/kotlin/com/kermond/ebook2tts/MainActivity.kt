@@ -16,7 +16,14 @@ class MainActivity : FlutterActivity() {
 
     private companion object {
         const val CHANNEL = "com.kermond.ebook2tts/system"
+        /** 本 App 自身的 TTS 引擎包名：诊断页「对照朗读」显式绑定它（走 :tts_service 进程） */
+        const val ENGINE_PACKAGE = "com.kermond.ebook2tts"
+        const val DEFAULT_SAMPLE = "夜深了，台灯把书桌照成一小块温暖的岛。"
     }
+
+    /** 诊断用：显式绑定本引擎的系统 TTS 客户端（仅用于对照朗读，不写配置、不改旁白） */
+    private var diagTts: android.speech.tts.TextToSpeech? = null
+    private var pendingSpeak: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -29,9 +36,46 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "openSystemTtsSettings" -> result.success(openSystemTtsSettings())
+                    // 对照朗读：经系统 TTS 交由本引擎在 :tts_service 进程合成（真机 A/B 用）
+                    "speakSample" -> {
+                        speakSample(call.argument<String>("text") ?: DEFAULT_SAMPLE)
+                        result.success(null)
+                    }
+                    "stopSample" -> {
+                        diagTts?.stop()
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun speakSample(text: String) {
+        val existing = diagTts
+        if (existing != null) {
+            existing.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "diag-sample")
+            return
+        }
+        pendingSpeak = text
+        diagTts = android.speech.tts.TextToSpeech(
+            applicationContext,
+            android.speech.tts.TextToSpeech.OnInitListener { status ->
+                if (status == android.speech.tts.TextToSpeech.SUCCESS) {
+                    diagTts?.language = java.util.Locale.SIMPLIFIED_CHINESE
+                    pendingSpeak?.let {
+                        diagTts?.speak(it, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "diag-sample")
+                        pendingSpeak = null
+                    }
+                }
+            },
+            ENGINE_PACKAGE,
+        )
+    }
+
+    override fun onDestroy() {
+        diagTts?.shutdown()
+        diagTts = null
+        super.onDestroy()
     }
 
     /**

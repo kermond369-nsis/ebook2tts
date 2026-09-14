@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
-        android:name="${applicationName}"
+        android:name="com.kermond.ebook2tts.engine.EngineApp"
         android:label="书声本地"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="true"
