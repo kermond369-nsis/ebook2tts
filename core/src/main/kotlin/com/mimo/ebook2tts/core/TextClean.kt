@@ -34,13 +34,21 @@ object TextClean {
     fun isJunkLine(text: String): Boolean {
         val t = text.trim()
         if (t.isEmpty()) return true
-        if (t.length <= 1) return true
+        // 单字符行：仅在**无可读字符**时视为噪声（"嗯"/"5" 这类要读出来，不得吞）
+        if (t.length <= 1) return !hasSpeakable(t)
         val junkHints = listOf(
             "最新网址", "手机用户请浏览", "记住本书", "天才一秒",
             "本书首发", "请收藏", "笔趣", "www.", "http://", "https://",
         )
         return junkHints.any { t.contains(it, ignoreCase = true) }
     }
+
+    /**
+     * 是否含**可读字符**（字母 / 数字 / 汉字）。
+     * 纯标点、纯空白、纯符号（如对齐存档尾残留的 `」`）无音可出：
+     * 分段时直接丢弃，避免引擎侧白跑一次合成并计 `DROP_UNIT`（IM-103/105）。
+     */
+    fun hasSpeakable(text: String): Boolean = text.any { it.isLetterOrDigit() }
 
     /** 章节标题行（应朗读，RQ-108 / DQ-6） */
     fun isChapterTitle(text: String): Boolean {

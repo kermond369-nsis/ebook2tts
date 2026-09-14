@@ -251,7 +251,9 @@ class SynthesisCoordinator(
             return SynthResult(false, true, false, 24000)
         }
 
-        val text = TextClean.normalize(rawText ?: "")
+        // 保留原始换行：整体归一化会把行压平，导致章节标题识别（RQ-108）与行内分句边界失效；
+        // 归一化与噪声过滤由 TextAnalyzer.analyze() 逐行完成。
+        val text = rawText ?: ""
         val engine = awaitBackend { isStopped() }
         if (engine == null) {
             val reason = when {

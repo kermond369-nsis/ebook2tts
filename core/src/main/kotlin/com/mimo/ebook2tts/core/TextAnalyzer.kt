@@ -21,14 +21,13 @@ object TextAnalyzer {
     )
 
     fun analyze(raw: String): List<TextSegment> {
-        val normalized = TextClean.normalize(raw)
-        if (normalized.isEmpty()) {
-            return listOf(TextSegment(SegmentKind.EMPTY, ""))
+        // 逐行归一化：normalize() 会把换行压成空格；若整体先归一化，行结构丢失，
+        // 章节标题识别（RQ-108/DQ-6）与分句边界随之失效。
+        val lines = raw.split('\n').map { TextClean.normalize(it).trim() }.filter { it.isNotEmpty() }
+        if (lines.isEmpty()) return listOf(TextSegment(SegmentKind.EMPTY, ""))
+        if (lines.size == 1 && TextClean.isChapterTitle(lines[0])) {
+            return listOf(TextSegment(SegmentKind.TITLE, TextClean.chapterSpeakText(lines[0])))
         }
-        if (TextClean.isChapterTitle(normalized)) {
-            return listOf(TextSegment(SegmentKind.TITLE, TextClean.chapterSpeakText(normalized)))
-        }
-        val lines = normalized.split(Regex("""\s{2,}|\n""")).map { it.trim() }.filter { it.isNotEmpty() }
         val out = mutableListOf<TextSegment>()
         for (line in lines) {
             if (TextClean.isJunkLine(line)) continue
@@ -39,6 +38,8 @@ object TextAnalyzer {
             splitSentences(line).forEach { sentence ->
                 val s = sentence.trim()
                 if (s.isEmpty()) return@forEach
+                // 纯标点碎片（如行尾残留的 」）无音可出：丢弃，避免无效合成与 DROP_UNIT
+                if (!TextClean.hasSpeakable(s)) return@forEach
                 out += classify(s)
             }
         }
