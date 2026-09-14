@@ -234,6 +234,7 @@ class SampleFragment : Fragment() {
             textSize = 12f
             setPadding(0, 12, 0, 0)
         })
+        scroll.addView(root)
         return scroll
     }
 }
@@ -305,6 +306,7 @@ class SettingsFragment : Fragment() {
                 (activity as? MainActivity)?.toast("将在当前句结束后生效")
             }
         })
+        scroll.addView(root)
         return scroll
     }
 }
@@ -340,6 +342,7 @@ class DiagnoseFragment : Fragment() {
                     .commitAllowingStateLoss()
             }
         })
+        scroll.addView(root)
         return scroll
     }
 }

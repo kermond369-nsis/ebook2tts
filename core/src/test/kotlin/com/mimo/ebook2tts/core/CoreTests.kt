@@ -173,6 +173,23 @@ class MirrorResolverTest {
         assertEquals(spec.primaryUrl, modified.sources.first())
         assertEquals(spec.mirrorUrl, modified.sources[1])
     }
+
+    @Test
+    fun customMirror_directLinkUsedAsIs() {
+        // 用户决策 2026-09-14：允许直接填「加速直链」，此时原样使用、不再拼归档名
+        val direct = "https://cdn.example.com/tts/${spec.archiveName}"
+        assertEquals(direct, MirrorResolver.sources(spec, direct).last())
+        // 末段带归档扩展名亦视为直链
+        val other = "https://cdn.example.com/tts/whatever.tar.gz"
+        assertEquals(other, MirrorResolver.sources(spec, other).last())
+        // 末段无扩展名 → 视为基址，自动拼归档名
+        assertEquals(
+            "https://cdn.example.com/tts/${spec.archiveName}",
+            MirrorResolver.sources(spec, "https://cdn.example.com/tts").last(),
+        )
+        // 尾斜杠归一化后行为一致
+        assertEquals(direct, MirrorResolver.sources(spec, "$direct/").last())
+    }
 }
 
 class EngineStateMachineTest {

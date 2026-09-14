@@ -8,18 +8,29 @@ package com.mimo.ebook2tts.core
  */
 object MirrorResolver {
 
+    /** 归档包扩展名（用于区分「直链」与「基址」） */
+    private val ARCHIVE_EXT = listOf(".tar.bz2", ".tar.gz", ".tgz", ".tar", ".zip")
+
     /**
      * 生成自定义镜像 URL；配置非法时返回 null。
      *
-     * - 基地址必须是 **https** URL（应用级 `usesCleartextTraffic=false`，明文 http 会被系统直接拒绝，
+     * 支持两种填法（用户决策 2026-09-14：允许自行填写**下载加速直链**）：
+     * 1. **直链**：完整 URL（以归档名结尾，或末段带归档扩展名）→ **原样使用**；
+     * 2. **基址**：目录前缀 → 自动拼 `/<archiveName>`。
+     *
+     * - 必须是 **https** URL（应用级 `usesCleartextTraffic=false`，明文 http 会被系统直接拒绝，
      *   故此处不接受 http，避免"配了却下不动"的坑）；
-     * - 末位 `/` 自动清理，拼 `/<archiveName>`。
+     * - 末位 `/` 自动清理。
      */
     fun customUrl(spec: ModelSpec, customBase: String?): String? {
-        val base = customBase?.trim()?.trimEnd('/') ?: return null
+        val raw = customBase?.trim() ?: return null
+        val base = raw.trimEnd('/')
         if (base.isEmpty()) return null
         if (!base.startsWith("https://") || base.length <= "https://".length) return null
         if (spec.archiveName.isBlank()) return null
+        if (base.endsWith("/${spec.archiveName}")) return base
+        val last = base.substringAfterLast('/')
+        if (ARCHIVE_EXT.any { last.endsWith(it) }) return base
         return "$base/${spec.archiveName}"
     }
 
