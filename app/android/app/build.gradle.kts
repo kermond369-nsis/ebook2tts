@@ -68,4 +68,9 @@ dependencies {
     // sherpa-onnx 本地 AAR：:engine 以 compileOnly 引用（避免库模块打 AAR 失败），
     // 运行时由本模块引入，保证 .so 与类进入 APK。
     implementation(files("../../../engine/libs/sherpa-onnx-1.13.8.aar"))
+    // Pigeon 桥接生成代码（app 模块内）所需的协程运行时：
+    // :engine 以 implementation 引入，不外露给宿主编译类路径，故此处显式声明同版本。
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    // 桥接 validateKey 的网络调用走 OkHttp（与 :engine 同版本，避免版本漂移）。
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

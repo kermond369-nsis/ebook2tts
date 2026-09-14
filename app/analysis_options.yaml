@@ -13,6 +13,8 @@ analyzer:
   exclude:
     - build/**
     - android/**
+    # Pigeon 生成物（勿手改；其自带 ignore_for_file 覆盖不到 depend_on_referenced_packages）
+    - lib/engine/engine_bridge.g.dart
 
 linter:
   # The lint rules applied to this project can be customized in the

@@ -2,13 +2,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../engine/engine_service.dart';
 import '../engine/mock_engine_service.dart';
+import '../engine/pigeon_engine_service.dart';
+
+/// 引擎后端开关（规格 §1：仅此一处切换，页面代码不感知）。
+///
+/// - `false`（默认）= Pigeon 真机桥接（[PigeonEngineService]，真机引擎）；
+/// - `true` = 回退 [MockEngineService]（演示数据；`main()` 会先完成其异步初始化）。
+const bool kEngineUseMock = false;
 
 /// 引擎服务入口。
 ///
-/// Mock 阶段返回 [MockEngineService]；实施线替换为 Pigeon 真机实现时，
-/// 仅需改动此处注入，签名与下游页面不变（规格 §1）。
+/// 已由 Mock 切换为 Pigeon 真机实现；签名与下游页面保持不变（规格 §1）。
 final engineServiceProvider = Provider<EngineService>((ref) {
-  return MockEngineService.instance();
+  return kEngineUseMock
+      ? MockEngineService.instance()
+      : PigeonEngineService.instance();
 });
 
 /// 引擎事件「滴答」：任意引擎事件自增一次，用于驱动各数据提供者刷新。
