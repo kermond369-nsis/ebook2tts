@@ -19,3 +19,7 @@ _test/
 build_on_hermes.sh
 
 screenshots/
+
+# Kotlin 编译会话/缓存（构建产物，勿入库）
+.kotlin/
+**/.kotlin/
