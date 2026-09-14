@@ -30,6 +30,21 @@ class AppShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final index = ref.watch(navIndexProvider);
     final status = ref.watch(statusProvider).value;
+    final models = ref.watch(modelsProvider).value;
+    // 徽标要区分两种"非就绪"：**没装模型**（需要引导下载）与**已装但引擎尚未载入**
+    // （引擎在首次朗读时才载入模型，属正常中间态，不该显示成红色告警）。
+    final modelInstalled = models?.any((m) => m.installed) ?? false;
+    final ready = status?.state.name == 'ready';
+    final badgeLabel = status == null
+        ? '正在读取'
+        : (ready || !modelInstalled)
+            ? engineStateLabel(status.state)
+            : '待朗读时启动';
+    final badgeColor = status == null
+        ? Tokens.textDim
+        : (ready
+            ? Tokens.accent
+            : (modelInstalled ? Tokens.textDim : Tokens.danger));
 
     return Scaffold(
       appBar: AppBar(
@@ -54,12 +69,8 @@ class AppShell extends ConsumerWidget {
             padding: const EdgeInsets.only(right: 12),
             child: Center(
               child: StatusChip(
-                label: status == null ? '正在读取' : engineStateLabel(status.state),
-                color: status == null
-                    ? Tokens.textDim
-                    : (status.state.name == 'ready'
-                        ? Tokens.accent
-                        : Tokens.danger),
+                label: badgeLabel,
+                color: badgeColor,
               ),
             ),
           ),
