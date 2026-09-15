@@ -86,7 +86,13 @@ class SectionCard extends StatelessWidget {
               ],
             ),
           if (title != null) const SizedBox(height: 10),
-          child,
+          // 卡片内可能有 ListTile（如设置页入口）：ListTile 的水波纹/背景画在最近的 Material 上，
+          // 而本卡片是带背景色的 Container ⇒ 框架会告警「ink splashes may be invisible」。
+          // 解决：给内容补一层透明 Material（不改变视觉，只给 ListTile 一个正确的绘制层）。
+          Material(
+            type: MaterialType.transparency,
+            child: child,
+          ),
         ],
       ),
     );

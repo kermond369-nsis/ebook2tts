@@ -12,8 +12,9 @@ dependencies:
     sdk: flutter
   # 状态管理（ADR-005：Riverpod）
   flutter_riverpod: ^3.4.3
-  # 仅用于 Mock 阶段的本机配置持久化（等价于引擎侧 MMKV 的落点）
-  shared_preferences: ^2.5.5
+  # 说明（IM-511，甲方 2026-09-15）：已移除 `shared_preferences` ——
+  # 真机配置的唯一写者是引擎侧 MMKV（ADR-012）；该依赖只剩 Mock 阶段用途（现为内存态），
+  # 且其 Android 端要求 compileSdk 36（甲方判定"过度激进"），故不再保留。
 
 dev_dependencies:
   flutter_test:

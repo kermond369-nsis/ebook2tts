@@ -7,6 +7,8 @@ import android.util.Log
 import com.kermond.ebook2tts.core.EngineState
 import com.kermond.ebook2tts.core.EngineStateMachine
 import com.kermond.ebook2tts.core.ModelCatalog
+import com.kermond.ebook2tts.core.OnlineSegmentPlan
+import com.kermond.ebook2tts.core.OnlineSegmentPlanner
 import com.kermond.ebook2tts.core.OnlineSettings
 import com.kermond.ebook2tts.core.PcmChunker
 import com.kermond.ebook2tts.core.ProcessNames
@@ -61,8 +63,12 @@ class SynthesisCoordinator(
         private val END = ByteArray(0) // 毒丸
     }
 
-    /** native 串行锁：合成 / 换装 / 释放 / 试听 共用（ADR-008 守卫锁） */
-    private val guard = ReentrantLock()
+    /**
+     * native 串行锁：**唯一实现点是 [NativeGate]**（合成/换装/释放/试听共用同一把锁，ADR-008）。
+     * 本字段只是别名——`SherpaBackend` 内部已自行进锁，协调器仅在**换装临界区**外层再加锁，
+     * 保证 release+load 对合成原子。**网络路径绝不持锁**（红线 7 / P3 遗留 TASK-02 整改）。
+     */
+    private val guard = NativeGate.lock
 
     /** 就绪条件（替代 sleep 轮询，红线 7） */
     private val readyLock = ReentrantLock()
@@ -212,12 +218,16 @@ class SynthesisCoordinator(
                 Log.i(TAG, "reload ok model=$modelId sr=${b.sampleRate} speakers=${b.numSpeakers()}")
                 // 桥接/诊断页读取的「实测采样率」：仅在加载成功后写入（未成功保持 0，不猜测）
                 ConfigStore.setStatusSampleRate(b.sampleRate)
+                // 状态广播（IM-510）：就绪态变化必须主动告知界面，否则徽标停留在旧态
+                // （本线程 = reloadExecutor，非合成线程，sendBroadcast 开销可接受）
+                ConfigStore.notifyStatus(context, "READY")
             }
         } catch (t: Throwable) {
             Log.e(TAG, "reload failed", t)
             sm.onInitFailure(t.message ?: "reload_exception")
             ConfigStore.setStatusState("ERROR")
             ConfigStore.setStatusLastError(t.message ?: "reload_exception")
+            ConfigStore.notifyStatus(context, "ERROR")
         } finally {
             signalReady()
         }
@@ -237,6 +247,9 @@ class SynthesisCoordinator(
      */
     private fun selectOnline(): BackendChoice.Online? {
         if (!ConfigStore.onlineEnabled()) return null
+        // 角色音色（RQ-507 / ADR-013）：**请求级一次性快照**；角色开关关闭时零触达
+        val roleEnabled = ConfigStore.roleVoiceEnabled()
+        val roles = if (roleEnabled) RoleRegistry.snapshot() else emptyMap()
         return when (
             val choice = OnlineSelector.select(
                 onlineEnabled = true, // 已在上层短路（在线关闭零额外动作）
@@ -249,6 +262,8 @@ class SynthesisCoordinator(
                 tokenPlanAccepted = ConfigStore.onlineTokenPlanAccepted(),
                 allowMobileData = ConfigStore.netAllowMobileData(),
                 onCellular = NetState.onCellular(context),
+                roleEnabled = roleEnabled,
+                roles = roles,
             )
         ) {
             is BackendChoice.Online -> choice
@@ -369,6 +384,12 @@ class SynthesisCoordinator(
         var streamSr = if (useOnline) OnlineSettings.SAMPLE_RATE else engine.sampleRate
         var onlineTtfbLogged = false
 
+        /**
+         * 在线语速伸缩开关（RQ-508 / ADR-014）：语速≠1 且本请求走在线时启用；
+         * 一旦回落本地必须立即关闭（本地 PCM 已按语速合成，重复处理＝二次变速）。
+         */
+        val stretchOn = AtomicBoolean(useOnline && !PcmSpeedStretcher.isNoop(speed))
+
         /** 在线失败 → 回落决策（纯逻辑在 OnlineFallback；此处执行副作用与打点） */
         fun onOnlineFailure(failure: OnlineOutcome.Failed) {
             val action = OnlineFallback.decide(
@@ -389,6 +410,8 @@ class SynthesisCoordinator(
                 // 无声切换：尚无任何音频（尚未 callback.start），或采样率一致可无缝续播
                 useOnline = false
                 streamSr = engine.sampleRate
+                // 本地 PCM 已按语速合成（native），停用在线侧的时域伸缩（避免二次变速）
+                stretchOn.set(false)
             }
             // STAY_ONLINE：起播后采样率不一致无法换源 → 本请求保持在线，按零音频降级链兜底
         }
@@ -432,35 +455,48 @@ class SynthesisCoordinator(
         }
 
         // 推送线程：IPC 不持守卫锁（红线 7）；首块头 / 末块尾微淡化（红线 6）
+        //
+        // 在线语速（RQ-508 / ADR-014）：在**本（推手）线程**做变速不变调（Sonic 时域伸缩），
+        // 采样率/声道不变；本地路径不经此处（native 已按语速合成）。开关见 [stretchOn]。
         val pusher = pushExecutor.submit {
             var held: ByteArray? = null
             var firstPending = true
+            val stretcher = PcmSpeedStretcher(speed)
+
+            /** 推送一块（含首/尾微淡化）；返回 false = 已中止 */
+            fun pushOne(block: ByteArray, isLast: Boolean): Boolean {
+                if (block.isEmpty()) return true
+                val out = when {
+                    isLast && firstPending -> {
+                        firstPending = false
+                        PcmChunker.fadeEdges(block, streamSr, 3)
+                    }
+                    isLast -> PcmChunker.fadeTail(block, streamSr, 3)
+                    firstPending -> {
+                        firstPending = false
+                        PcmChunker.fadeHead(block, streamSr, 3)
+                    }
+                    else -> block
+                }
+                return pushBytes(out)
+            }
+
             try {
                 while (true) {
                     val blk = queue.take()
                     if (blk.isEmpty()) break
-                    val prev = held
-                    if (prev != null) {
-                        val out = if (firstPending) {
-                            firstPending = false
-                            PcmChunker.fadeHead(prev, streamSr, 3)
-                        } else {
-                            prev
-                        }
-                        if (!pushBytes(out)) return@submit
-                    }
-                    held = blk
+                    val processed = if (stretchOn.get()) stretcher.process(blk, streamSr) else blk
+                    if (processed.isEmpty()) continue // Sonic 可能先缓冲、暂无输出
+                    held?.let { if (!pushOne(it, isLast = false)) return@submit }
+                    held = processed
                 }
-                val last = held
-                if (last != null) {
-                    val out = if (firstPending) {
-                        // 单块请求：首尾都是它
-                        PcmChunker.fadeEdges(last, streamSr, 3)
-                    } else {
-                        PcmChunker.fadeTail(last, streamSr, 3)
-                    }
-                    pushBytes(out)
+                // 榨出 Sonic 内部残余样本，否则末段会被截断（仅在在线且未回落时）
+                val tail = if (stretchOn.get()) stretcher.end() else ByteArray(0)
+                if (tail.isNotEmpty()) {
+                    held?.let { if (!pushOne(it, isLast = false)) return@submit }
+                    held = tail
                 }
+                held?.let { pushOne(it, isLast = true) }
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             } catch (t: Throwable) {
@@ -485,20 +521,25 @@ class SynthesisCoordinator(
             }
         }
 
-        /** 在线单段合成（持守卫锁串行；网络 IO 在 OnlineBackend 工作线程，合成线程零 IO） */
+        /**
+         * 在线单段合成（**不持锁**）：在线不触碰 native，无需串行；
+         * 持锁会在网络抖动时阻塞换装/销毁（红线 7 / TASK-02）。网络 IO 由 OnlineBackend 工作线程完成。
+         */
         fun synthesizeOnlineSegment(request: OnlineRequest, text: String): OnlineOutcome =
-            guard.withLock {
-                OnlineBackendHolder.get().synthesize(
-                    request = request,
-                    text = text,
-                    onPcm = onPcm@{ pcm ->
-                        if (isStopped() || aborted.get()) return@onPcm false
-                        enqueue(pcm)
-                        !(isStopped() || aborted.get())
-                    },
-                    isCancelled = { isStopped() || aborted.get() },
-                )
-            }
+            OnlineBackendHolder.get().synthesize(
+                request = request,
+                text = text,
+                onPcm = onPcm@{ pcm ->
+                    if (isStopped() || aborted.get()) return@onPcm false
+                    enqueue(pcm)
+                    !(isStopped() || aborted.get())
+                },
+                isCancelled = { isStopped() || aborted.get() },
+            )
+
+        // 待精标候选（角色名，按首次出现顺序）——本次朗读可见的说话人
+        val candidatesSeen = LinkedHashSet<String>()
+        val designedLogged = HashSet<String>()
 
         try {
             for (seg in segments) {
@@ -513,9 +554,35 @@ class SynthesisCoordinator(
                     roleAssigner.assign(seg)
                 }
 
+                // 在线角色音色（RQ-507 / ADR-013）：逐段出参决策（纯内存查表，零 IO）
+                val roleName = if (mode == RoleMode.SMART_MULTI) {
+                    seg.speakerHint?.trim()?.takeIf { it.isNotEmpty() }
+                } else {
+                    null
+                }
+                if (roleName != null) candidatesSeen.add(roleName)
+                val segPlan: OnlineSegmentPlan? =
+                    if (onlineRequest != null && roleName != null) {
+                        OnlineSegmentPlanner.plan(
+                            baseModel = onlineRequest.model,
+                            baseVoice = onlineRequest.voice,
+                            baseStyle = onlineRequest.style,
+                            roleEnabled = onlineRequest.roleEnabled,
+                            roleName = roleName,
+                            design = onlineRequest.roles[roleName],
+                        )
+                    } else {
+                        null
+                    }
+
                 var produced = false
                 if (useOnline && onlineRequest != null) {
-                    when (val outcome = synthesizeOnlineSegment(onlineRequest, spoken)) {
+                    val segRequest = segPlan?.let { onlineRequest.forSegment(it) } ?: onlineRequest
+                    if (segPlan?.useDesign == true && designedLogged.add(roleName!!)) {
+                        // 打点：本请求内该角色首次用上 voicedesign 造音色
+                        Log.i(TAG, "ONLINE|role=$roleName|design=1|model=${segPlan.model}")
+                    }
+                    when (val outcome = synthesizeOnlineSegment(segRequest, spoken)) {
                         is OnlineOutcome.Ok -> {
                             produced = true
                             if (!onlineTtfbLogged && outcome.ttfbMs >= 0L) {
@@ -528,29 +595,26 @@ class SynthesisCoordinator(
                     }
                 }
                 if (!produced && !useOnline) {
-                    guard.withLock {
-                        engine.generateStreaming(spoken, voice.speakerId, speed) { samples ->
-                            if (isStopped() || aborted.get()) return@generateStreaming false
-                            val pcm = PcmChunker.floatToPcm16(samples)
-                            if (pcm.isEmpty()) return@generateStreaming true
-                            produced = true
-                            enqueue(pcm)
-                            !(isStopped() || aborted.get())
-                        }
+                    // 锁已下沉进 SherpaBackend（NativeGate）：此处不再包锁，避免"锁里等 native"以外的负担
+                    engine.generateStreaming(spoken, voice.speakerId, speed) { samples ->
+                        if (isStopped() || aborted.get()) return@generateStreaming false
+                        val pcm = PcmChunker.floatToPcm16(samples)
+                        if (pcm.isEmpty()) return@generateStreaming true
+                        produced = true
+                        enqueue(pcm)
+                        !(isStopped() || aborted.get())
                     }
                     if (!produced) {
                         // 字符强清洗重试（AR-§4.8.6；G2P 未映射字符是零音频唯一确定性根因）
                         val cleaned = TextClean.hardClean(spoken)
                         if (cleaned.isNotBlank()) {
-                            guard.withLock {
-                                engine.generateStreaming(cleaned, voice.speakerId, speed) { samples ->
-                                    if (isStopped() || aborted.get()) return@generateStreaming false
-                                    val pcm = PcmChunker.floatToPcm16(samples)
-                                    if (pcm.isEmpty()) return@generateStreaming true
-                                    produced = true
-                                    enqueue(pcm)
-                                    !(isStopped() || aborted.get())
-                                }
+                            engine.generateStreaming(cleaned, voice.speakerId, speed) { samples ->
+                                if (isStopped() || aborted.get()) return@generateStreaming false
+                                val pcm = PcmChunker.floatToPcm16(samples)
+                                if (pcm.isEmpty()) return@generateStreaming true
+                                produced = true
+                                enqueue(pcm)
+                                !(isStopped() || aborted.get())
                             }
                         }
                     }
@@ -570,6 +634,12 @@ class SynthesisCoordinator(
         } catch (t: Throwable) {
             Log.e(TAG, "synthesize error req=$reqId", t)
         } finally {
+            // 角色精标输入（ADR-013）：把本次可见文本与说话人交给后台线程限频落盘，
+            // 由**主进程**在后续调用精标（本进程零 LLM）。合成线程此处零 IO。
+            // 注：即便本请求中途回落本地，文本已被用户"听到"，仍应作为精标输入（角色与后端无关）。
+            if (onlineRequest?.roleEnabled == true && candidatesSeen.isNotEmpty()) {
+                RoleRegistry.offerExcerpt(text, candidatesSeen)
+            }
             // 无条件（含中止/异常路径）释放推送线程：毒丸 + 有界收尾
             val poisonDeadline = System.currentTimeMillis() + 2_000L
             while (!pusher.isDone && System.currentTimeMillis() < poisonDeadline) {

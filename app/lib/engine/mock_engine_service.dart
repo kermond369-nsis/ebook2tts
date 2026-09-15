@@ -2,17 +2,32 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:shared_preferences/shared_preferences.dart';
-
 import 'engine_service.dart';
+
+/// Mock 专用的**内存键值**（替代 `shared_preferences`，IM-511）。
+///
+/// 决策（甲方 2026-09-15）：不为 `shared_preferences` 把 `compileSdk` 抬到 36；直接移除该依赖。
+/// 真机配置的**唯一写者**是引擎侧 MMKV（ADR-012），Mock 只在开发期演示、不需要落盘。
+class _MemoryStore {
+  final Map<String, Object> _m = <String, Object>{};
+
+  String? getString(String key) => _m[key] as String?;
+
+  List<String>? getStringList(String key) => _m[key] as List<String>?;
+
+  Future<void> setString(String key, String value) async => _m[key] = value;
+
+  Future<void> setStringList(String key, List<String> value) async => _m[key] = value;
+
+  Future<void> remove(String key) async => _m.remove(key);
+}
 
 /// [EngineService] 的 Mock 实现（P3 规格 §5）。
 ///
 /// - 全页面可跑通、可点击、状态可切换；
 /// - 模型/音色使用真实清单文案（体积为实测值）；
 /// - 下载进度用假进度模拟：probe→download→verify→extract→promote；
-/// - 关键配置（在线开关、Token Plan 同意、旁白、已装模型）落本机持久化，
-///   以便「重启后已同意者直接可填、未同意者仍需弹窗」的验收成立。
+/// - 配置仅在**内存**中保持（重启即回到默认），真机配置单写者＝引擎 MMKV（ADR-012）。
 ///
 /// 真机桥接由实施线随后替换为 Pigeon 实现，接口签名不变。
 class MockEngineService implements EngineService {
@@ -32,14 +47,14 @@ class MockEngineService implements EngineService {
     return it;
   }
 
-  /// 异步构造（读取本机持久化配置）。
-  static Future<MockEngineService> create(SharedPreferences prefs) async {
-    final service = MockEngineService._(prefs);
+  /// 构造（内存态；不落盘）。
+  static Future<MockEngineService> create() async {
+    final service = MockEngineService._(_MemoryStore());
     _instance = service;
     return service;
   }
 
-  final SharedPreferences _prefs;
+  final _MemoryStore _prefs;
   final _events = StreamController<EngineEvent>.broadcast();
   final _random = Random(20260914);
   final List<String> _logs = <String>[];
@@ -141,6 +156,7 @@ class MockEngineService implements EngineService {
               AppConfig.baseUrlFor(map['keyKind'] as String? ?? 'billing'),
           allowMobileData: map['allowMobileData'] == true,
           customMirror: map['customMirror'] as String? ?? '',
+          roleVoiceEnabled: map['roleVoiceEnabled'] != false,
         );
       } catch (_) {
         _config = AppConfig.initial();
@@ -167,6 +183,7 @@ class MockEngineService implements EngineService {
       'baseUrl': _config.baseUrl,
       'allowMobileData': _config.allowMobileData,
       'customMirror': _config.customMirror,
+      'roleVoiceEnabled': _config.roleVoiceEnabled,
     }));
   }
 
@@ -524,6 +541,7 @@ class MockEngineService implements EngineService {
     String? baseUrl,
     String? customMirror,
     bool? tokenPlanAccepted,
+    bool? roleVoiceEnabled,
   }) async {
     var next = _config;
 
@@ -566,6 +584,9 @@ class MockEngineService implements EngineService {
     }
     if (tokenPlanAccepted != null) {
       next = next.copyWith(tokenPlanAccepted: tokenPlanAccepted);
+    }
+    if (roleVoiceEnabled != null) {
+      next = next.copyWith(roleVoiceEnabled: roleVoiceEnabled);
     }
 
     _config = next;

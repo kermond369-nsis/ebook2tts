@@ -7,7 +7,7 @@ import android.os.IBinder
 import android.util.Log
 
 /**
- * 试听入口（IM-114 / IM-406b）。
+ * 试听入口（IM-114 / IM-506b）。
  *
  * 为什么必须放在这里：推理只允许发生在 `:tts_service` 进程（架构书 AR-§1.7，主进程零推理）。
  * 界面进程（Flutter App）不能直接持有 [PreviewPlayer]，否则会被 [ProcessGuard] 拒绝

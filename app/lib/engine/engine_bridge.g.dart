@@ -407,6 +407,9 @@ class ConfigDto {
     required this.baseUrl,
     required this.allowMobileData,
     required this.customMirror,
+    required this.roleVoiceEnabled,
+    required this.roleCount,
+    required this.roleRefineCount,
   });
 
   /// 语速倍数（默认 1.0）。
@@ -433,6 +436,15 @@ class ConfigDto {
   /// 自定义下载镜像基地址（空 = 官方源）。
   String customMirror;
 
+  /// 「AI 角色音色」开关（RQ-507；仅在线时有意义）。
+  bool roleVoiceEnabled;
+
+  /// 已建档角色数（诊断展示）。
+  int roleCount;
+
+  /// 角色精标成功次数（文本用量粗估，诊断展示）。
+  int roleRefineCount;
+
   List<Object?> _toList() {
     return <Object?>[
       speed,
@@ -443,6 +455,9 @@ class ConfigDto {
       baseUrl,
       allowMobileData,
       customMirror,
+      roleVoiceEnabled,
+      roleCount,
+      roleRefineCount,
     ];
   }
 
@@ -460,6 +475,9 @@ class ConfigDto {
       baseUrl: result[5]! as String,
       allowMobileData: result[6]! as bool,
       customMirror: result[7]! as String,
+      roleVoiceEnabled: result[8]! as bool,
+      roleCount: result[9]! as int,
+      roleRefineCount: result[10]! as int,
     );
   }
 
@@ -472,7 +490,7 @@ class ConfigDto {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(speed, other.speed) && _deepEquals(onlineEnabled, other.onlineEnabled) && _deepEquals(tokenPlanAccepted, other.tokenPlanAccepted) && _deepEquals(keyKind, other.keyKind) && _deepEquals(apiKeyMasked, other.apiKeyMasked) && _deepEquals(baseUrl, other.baseUrl) && _deepEquals(allowMobileData, other.allowMobileData) && _deepEquals(customMirror, other.customMirror);
+    return _deepEquals(speed, other.speed) && _deepEquals(onlineEnabled, other.onlineEnabled) && _deepEquals(tokenPlanAccepted, other.tokenPlanAccepted) && _deepEquals(keyKind, other.keyKind) && _deepEquals(apiKeyMasked, other.apiKeyMasked) && _deepEquals(baseUrl, other.baseUrl) && _deepEquals(allowMobileData, other.allowMobileData) && _deepEquals(customMirror, other.customMirror) && _deepEquals(roleVoiceEnabled, other.roleVoiceEnabled) && _deepEquals(roleCount, other.roleCount) && _deepEquals(roleRefineCount, other.roleRefineCount);
   }
 
   @override
@@ -481,7 +499,7 @@ class ConfigDto {
 
   @override
   String toString() {
-    return 'ConfigDto(speed: $speed, onlineEnabled: $onlineEnabled, tokenPlanAccepted: $tokenPlanAccepted, keyKind: $keyKind, apiKeyMasked: $apiKeyMasked, baseUrl: $baseUrl, allowMobileData: $allowMobileData, customMirror: $customMirror)';
+    return 'ConfigDto(speed: $speed, onlineEnabled: $onlineEnabled, tokenPlanAccepted: $tokenPlanAccepted, keyKind: $keyKind, apiKeyMasked: $apiKeyMasked, baseUrl: $baseUrl, allowMobileData: $allowMobileData, customMirror: $customMirror, roleVoiceEnabled: $roleVoiceEnabled, roleCount: $roleCount, roleRefineCount: $roleRefineCount)';
   }
 }
 
@@ -822,14 +840,14 @@ class EngineHostApi {
   }
 
   /// 更新配置（null = 不改；写入后广播引擎热重载）。
-  Future<void> updateConfig({double? speed, bool? onlineEnabled, bool? allowMobileData, String? keyKind, String? apiKey, String? baseUrl, String? customMirror, bool? tokenPlanAccepted, }) async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.ebook2tts.EngineHostApi.updateConfig$pigeonVar_messageChannelSuffix';
-    final pigeonVar_channel = BasicMessageChannel<Object?>(
+  Future<void> updateConfig({double? speed, bool? onlineEnabled, bool? allowMobileData, String? keyKind, String? apiKey, String? baseUrl, String? customMirror, bool? tokenPlanAccepted, bool? roleVoiceEnabled, }) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.ebook2tts.EngineHostApi.updateConfig$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[speed, onlineEnabled, allowMobileData, keyKind, apiKey, baseUrl, customMirror, tokenPlanAccepted]);
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[speed, onlineEnabled, allowMobileData, keyKind, apiKey, baseUrl, customMirror, tokenPlanAccepted, roleVoiceEnabled]);
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     _extractReplyValueOrThrow(

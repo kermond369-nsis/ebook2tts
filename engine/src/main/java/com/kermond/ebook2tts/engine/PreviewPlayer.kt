@@ -9,6 +9,7 @@ import android.media.AudioTrack
 import android.os.Build
 import android.util.Log
 import com.kermond.ebook2tts.core.ModelCatalog
+import com.kermond.ebook2tts.core.OnlineSegmentPlanner
 import com.kermond.ebook2tts.core.OnlineSettings
 import com.kermond.ebook2tts.core.PcmChunker
 import com.kermond.ebook2tts.core.SpeedMapper
@@ -71,7 +72,7 @@ class PreviewPlayer(private val context: Context) {
                     return@execute
                 }
                 // 请求级后端接缝：在线优先；失败静默回落本地完整重播
-                if (tryOnlinePreview(cleaned, listener)) return@execute
+                if (tryOnlinePreview(cleaned, listener, speed)) return@execute
                 if (!playing.get()) return@execute // 在线失败后用户已停止：不再回落
                 val modelId = ConfigStore.modelId()
                 val spec = ModelCatalog.byId(modelId)
@@ -127,7 +128,7 @@ class PreviewPlayer(private val context: Context) {
      * @return true = 已处理（播放完成 / 用户停止 / 在线失败后用户已停止）；
      *         false = 在线失败且用户仍在播放 → 调用方回落本地**完整重播**（静默）。
      */
-    private fun tryOnlinePreview(cleaned: String, listener: Listener): Boolean {
+    private fun tryOnlinePreview(cleaned: String, listener: Listener, speed: Float): Boolean {
         val choice = selectOnline() ?: return false
         val request = choice.request
         Log.i(
@@ -137,23 +138,51 @@ class PreviewPlayer(private val context: Context) {
         )
         choice.warning?.let { Log.w(TAG, "ONLINE|warn=key_kind_mismatch|$it") }
 
-        // 在线试听不套用语速参数（MiMo TTS 协议无 speed 字段）
+        // 角色精标输入（ADR-013）：试听内容是用户"听到"的正文，同样应作为角色分析输入
+        // （否则只有系统朗读路径会积累角色，试听多角色永远走不到 voicedesign）。
+        // 注意：offerExcerpt 内部走后台线程 + 限频，本线程零阻塞。
+        runCatching {
+            val cands = TextAnalyzer.analyze(cleaned).mapNotNull { seg ->
+                seg.speakerHint?.trim()?.takeIf { it.isNotEmpty() }
+            }
+            if (cands.isNotEmpty()) RoleRegistry.offerExcerpt(cleaned, cands)
+        }
+
+        // 在线语速（RQ-508 / ADR-014）：试听同样在本机做变速不变调（与系统朗读路径同语义）
+        val stretchSpeed = speed.coerceIn(0.5f, 2.0f)
+        val stretcher = if (PcmSpeedStretcher.isNoop(stretchSpeed)) null else PcmSpeedStretcher(stretchSpeed)
         val segments = TextAnalyzer.analyze(cleaned)
         var doneSeg = 0
         var trackFailed = false
         var anyPcm = false
+        val designedLogged = HashSet<String>()
         for (seg in segments) {
             if (!playing.get()) return true
             if (seg.text.isBlank()) continue
+            // 角色音色（RQ-507）：试听同样按角色档案走 voicedesign（可区分即可，允许偏差）
+            val roleName = seg.speakerHint?.trim()?.takeIf { it.isNotEmpty() }
+            val plan = OnlineSegmentPlanner.plan(
+                baseModel = request.model,
+                baseVoice = request.voice,
+                baseStyle = request.style,
+                roleEnabled = request.roleEnabled,
+                roleName = roleName,
+                design = roleName?.let { request.roles[it] },
+            )
+            if (plan.useDesign && roleName != null && designedLogged.add(roleName)) {
+                Log.i(TAG, "ONLINE|role=$roleName|design=1|model=${plan.model}|preview=1")
+            }
             val outcome = OnlineBackendHolder.get().synthesize(
-                request = request,
+                request = request.forSegment(plan),
                 text = seg.text,
-                onPcm = onPcm@{ pcm ->
+                onPcm = onPcm@{ raw ->
                     if (!playing.get()) return@onPcm false
                     if (track == null && !startTrack(OnlineSettings.SAMPLE_RATE, listener)) {
                         trackFailed = true
                         return@onPcm false
                     }
+                    val pcm = stretcher?.process(raw, OnlineSettings.SAMPLE_RATE) ?: raw
+                    if (pcm.isEmpty()) return@onPcm playing.get()
                     anyPcm = true
                     runCatching { track?.write(pcm, 0, pcm.size) }
                     playing.get()
@@ -183,7 +212,13 @@ class PreviewPlayer(private val context: Context) {
             }
         }
         if (!playing.get()) return true
-        runCatching { track?.stop() }
+        runCatching {
+            // 榨出伸缩器残余样本（在线试听末段不截断）
+            stretcher?.end()?.takeIf { it.isNotEmpty() }?.let { tail ->
+                track?.write(tail, 0, tail.size)
+            }
+            track?.stop()
+        }
         releaseTrack()
         abandonFocus()
         playing.set(false)
@@ -196,6 +231,9 @@ class PreviewPlayer(private val context: Context) {
      */
     private fun selectOnline(): BackendChoice.Online? {
         if (!ConfigStore.onlineEnabled()) return null
+        // 角色音色（RQ-507）：请求级一次性快照（试听同样适用）
+        val roleEnabled = ConfigStore.roleVoiceEnabled()
+        val roles = if (roleEnabled) RoleRegistry.snapshot() else emptyMap()
         return when (
             val choice = OnlineSelector.select(
                 onlineEnabled = true, // 已在上层短路（在线关闭零额外动作）
@@ -208,6 +246,8 @@ class PreviewPlayer(private val context: Context) {
                 tokenPlanAccepted = ConfigStore.onlineTokenPlanAccepted(),
                 allowMobileData = ConfigStore.netAllowMobileData(),
                 onCellular = NetState.onCellular(context),
+                roleEnabled = roleEnabled,
+                roles = roles,
             )
         ) {
             is BackendChoice.Online -> choice

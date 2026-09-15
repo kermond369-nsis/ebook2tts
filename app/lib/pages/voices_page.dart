@@ -132,34 +132,40 @@ class _EnglishSection extends StatelessWidget {
         color: Tokens.surface,
         borderRadius: BorderRadius.circular(Tokens.radiusCard),
       ),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          initiallyExpanded: narratorInEn,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-          childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-          iconColor: Tokens.accent,
-          collapsedIconColor: Tokens.textDim,
-          title: const Text(
-            '英文音色（点击展开）',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Tokens.text,
-            ),
-          ),
-          subtitle: Text(
-            '共 ${voices.length} 个，默认折叠；适合朗读英文书名或原文段落',
-            style: const TextStyle(fontSize: 12.5, color: Tokens.textDim),
-          ),
-          children: [
-            for (final v in voices)
-              _VoiceRow(
-                voice: v,
-                previewing: preview.playing && preview.voiceId == v.id,
-                anyPreviewing: preview.playing,
+      // ExpansionTile 内部用 ListTile 渲染标题：ListTile 的水波纹画在最近的 Material 上，
+      // 而本容器是带背景色的 Container ⇒ 框架告警「ink splashes may be invisible」。
+      // 补一层透明 Material（视觉不变，只提供正确绘制层）。
+      child: Material(
+        type: MaterialType.transparency,
+        child: Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            initiallyExpanded: narratorInEn,
+            tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+            childrenPadding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+            iconColor: Tokens.accent,
+            collapsedIconColor: Tokens.textDim,
+            title: const Text(
+              '英文音色（点击展开）',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Tokens.text,
               ),
-          ],
+            ),
+            subtitle: Text(
+              '共 ${voices.length} 个，默认折叠；适合朗读英文书名或原文段落',
+              style: const TextStyle(fontSize: 12.5, color: Tokens.textDim),
+            ),
+            children: [
+              for (final v in voices)
+                _VoiceRow(
+                  voice: v,
+                  previewing: preview.playing && preview.voiceId == v.id,
+                  anyPreviewing: preview.playing,
+                ),
+            ],
+          ),
         ),
       ),
     );

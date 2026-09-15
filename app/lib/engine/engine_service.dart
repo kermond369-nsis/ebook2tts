@@ -139,9 +139,13 @@ class AppConfig {
     required this.baseUrl,
     required this.allowMobileData,
     required this.customMirror,
+    this.roleVoiceEnabled = true,
+    this.roleCount = 0,
+    this.roleRefineCount = 0,
   });
 
   /// 默认值：在线总开关关、数据流量关、按量计费、未同意 Token Plan（规格 §3/§6）。
+  /// 「AI 角色音色」默认开（RQ-509；仅在线开启时生效）。
   factory AppConfig.initial() => const AppConfig(
         speed: 1.0,
         onlineEnabled: false,
@@ -151,6 +155,7 @@ class AppConfig {
         baseUrl: baseUrlBilling,
         allowMobileData: false,
         customMirror: '',
+        roleVoiceEnabled: true,
       );
 
   final double speed;
@@ -165,6 +170,15 @@ class AppConfig {
   final String baseUrl;
   final bool allowMobileData;
   final String customMirror;
+
+  /// 「AI 角色音色」开关（RQ-507：在线时按角色用 voicedesign 造可区分音色）。
+  final bool roleVoiceEnabled;
+
+  /// 已建档角色数（诊断展示）。
+  final int roleCount;
+
+  /// 角色精标成功次数（文本用量粗估，诊断展示）。
+  final int roleRefineCount;
 
   /// 两类密钥与接口域名相互绑定，不可混用（见《免责声明》第三条）。
   static const String baseUrlBilling = 'https://api.xiaomimimo.com/v1';
@@ -184,6 +198,9 @@ class AppConfig {
     String? baseUrl,
     bool? allowMobileData,
     String? customMirror,
+    bool? roleVoiceEnabled,
+    int? roleCount,
+    int? roleRefineCount,
   }) {
     return AppConfig(
       speed: speed ?? this.speed,
@@ -194,6 +211,9 @@ class AppConfig {
       baseUrl: baseUrl ?? this.baseUrl,
       allowMobileData: allowMobileData ?? this.allowMobileData,
       customMirror: customMirror ?? this.customMirror,
+      roleVoiceEnabled: roleVoiceEnabled ?? this.roleVoiceEnabled,
+      roleCount: roleCount ?? this.roleCount,
+      roleRefineCount: roleRefineCount ?? this.roleRefineCount,
     );
   }
 }
@@ -240,6 +260,7 @@ abstract class EngineService {
     String? baseUrl,
     String? customMirror,
     bool? tokenPlanAccepted,
+    bool? roleVoiceEnabled,
   });
 
   Future<List<String>> recentLogs();

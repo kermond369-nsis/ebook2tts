@@ -2,6 +2,7 @@ package com.kermond.ebook2tts
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import com.kermond.ebook2tts.engine.ConfigStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -51,6 +52,9 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun speakSample(text: String) {
+        // 修复（2026-09-15 真机发现）：此前从不设置语速，App 自家「对照朗读」永远 1.0×，
+        // 与设置页文案「语速：影响全部朗读（离线与在线）」不一致，也让在线变速无从验证。
+        runCatching { diagTts?.setSpeechRate(ConfigStore.speedValue()) }
         val existing = diagTts
         if (existing != null) {
             existing.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "diag-sample")
@@ -62,6 +66,8 @@ class MainActivity : FlutterActivity() {
             android.speech.tts.TextToSpeech.OnInitListener { status ->
                 if (status == android.speech.tts.TextToSpeech.SUCCESS) {
                     diagTts?.language = java.util.Locale.SIMPLIFIED_CHINESE
+                    // 首次创建实例时也要带上滑杆语速（否则第一次「朗读一次」仍按 1.0×）
+                    runCatching { diagTts?.setSpeechRate(ConfigStore.speedValue()) }
                     pendingSpeak?.let {
                         diagTts?.speak(it, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "diag-sample")
                         pendingSpeak = null

@@ -117,6 +117,7 @@ class ConfigNotifier extends AsyncNotifier<AppConfig> {
     String? baseUrl,
     String? customMirror,
     bool? tokenPlanAccepted,
+    bool? roleVoiceEnabled,
   }) async {
     final engine = ref.read(engineServiceProvider);
     await engine.updateConfig(
@@ -128,6 +129,7 @@ class ConfigNotifier extends AsyncNotifier<AppConfig> {
       baseUrl: baseUrl,
       customMirror: customMirror,
       tokenPlanAccepted: tokenPlanAccepted,
+      roleVoiceEnabled: roleVoiceEnabled,
     );
     state = AsyncData(await engine.config());
   }

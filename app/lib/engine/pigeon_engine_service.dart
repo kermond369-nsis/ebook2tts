@@ -164,6 +164,9 @@ class PigeonEngineService implements EngineService {
       baseUrl: dto.baseUrl,
       allowMobileData: dto.allowMobileData,
       customMirror: dto.customMirror,
+      roleVoiceEnabled: dto.roleVoiceEnabled,
+      roleCount: dto.roleCount,
+      roleRefineCount: dto.roleRefineCount,
     );
   }
 
@@ -177,6 +180,7 @@ class PigeonEngineService implements EngineService {
     String? baseUrl,
     String? customMirror,
     bool? tokenPlanAccepted,
+    bool? roleVoiceEnabled,
   }) async {
     await _host.updateConfig(
       speed: speed,
@@ -187,6 +191,7 @@ class PigeonEngineService implements EngineService {
       baseUrl: baseUrl,
       customMirror: customMirror,
       tokenPlanAccepted: tokenPlanAccepted,
+      roleVoiceEnabled: roleVoiceEnabled,
     );
     _emitStatusSnapshot();
   }

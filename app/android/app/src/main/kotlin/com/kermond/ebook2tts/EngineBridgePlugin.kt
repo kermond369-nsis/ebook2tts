@@ -1,8 +1,11 @@
 package com.kermond.ebook2tts
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.kermond.ebook2tts.core.ModelCatalog
 import com.kermond.ebook2tts.core.ModelSpec
 import com.kermond.ebook2tts.core.OnlineSettings
@@ -10,6 +13,7 @@ import com.kermond.ebook2tts.core.VoiceCatalog
 import com.kermond.ebook2tts.engine.ConfigStore
 import com.kermond.ebook2tts.engine.DownloadService
 import com.kermond.ebook2tts.engine.PreviewService
+import com.kermond.ebook2tts.engine.RoleRegistry
 import com.tencent.mmkv.MMKV
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import kotlinx.coroutines.CoroutineScope
@@ -34,7 +38,7 @@ import java.util.concurrent.TimeUnit
  * - 配置**单写**：全部读写经 `ConfigStore`（MMKV 多进程），App 不得直接触碰引擎存储；
  * - **密钥不回明文**：`config()` 只回脱敏串，密钥不写日志；
  * - 进度推送不入侵引擎：下载中按暂存区 `.part` 实际字节数取样上报（只读文件长度）；
- * - 试听经 `PreviewService` 交给 `:tts_service` 进程播放（**不写全局旁白**，IM-114 / IM-406b）。
+ * - 试听经 `PreviewService` 交给 `:tts_service` 进程播放（**不写全局旁白**，IM-114 / IM-506b）。
  */
 class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
 
@@ -62,14 +66,44 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         eventApi = EngineEventApi(binding.binaryMessenger)
         // 试听不在此进程持有播放器：推理只允许在 :tts_service（见 PreviewService 注释）
         EngineHostApi.setUp(binding.binaryMessenger, this)
+        registerStatusReceiver()
         log("bridge attached")
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         EngineHostApi.setUp(binding.binaryMessenger, null)
         progressJob?.cancel()
+        runCatching { statusReceiver?.let { context.unregisterReceiver(it) } }
+        statusReceiver = null
         eventApi = null
         scope.cancel()
+    }
+
+    /**
+     * 引擎状态广播 → Flutter 事件（IM-510）。
+     *
+     * 背景：`:tts_service` 在就绪/故障/下载阶段会广播 `ACTION_ENGINE_STATUS`，但界面此前**无人监听**，
+     * 导致「引擎已就绪、徽标仍停在旧态」。此处接住广播并转成 `status` 事件驱动界面刷新。
+     */
+    private var statusReceiver: BroadcastReceiver? = null
+
+    private fun registerStatusReceiver() {
+        if (statusReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                val code = intent?.getStringExtra("code").orEmpty()
+                emit("status", JSONObject().put("phase", "engine_status").put("code", code).toString())
+            }
+        }
+        runCatching {
+            ContextCompat.registerReceiver(
+                context,
+                receiver,
+                IntentFilter(ConfigStore.ACTION_ENGINE_STATUS),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+            statusReceiver = receiver
+        }.onFailure { log("status receiver failed: ${it.javaClass.simpleName}") }
     }
 
     // ---------------------------------------------------------------- 状态
@@ -207,6 +241,9 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
             baseUrl = OnlineSettings.resolveBaseUrl(kind, custom),
             allowMobileData = ConfigStore.netAllowMobileData(),
             customMirror = mirror,
+            roleVoiceEnabled = ConfigStore.roleVoiceEnabled(),
+            roleCount = RoleRegistry.size().toLong(),
+            roleRefineCount = ConfigStore.roleRefineCount().toLong(),
         )
     }
 
@@ -219,6 +256,7 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         baseUrl: String?,
         customMirror: String?,
         tokenPlanAccepted: Boolean?,
+        roleVoiceEnabled: Boolean?,
     ) {
         speed?.let { ConfigStore.setSpeedValue(it.toFloat()) }
         onlineEnabled?.let { ConfigStore.setOnlineEnabled(it) }
@@ -228,6 +266,7 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         baseUrl?.let { ConfigStore.setOnlineBaseUrl(it.trim()) }
         customMirror?.let { ConfigStore.setMirrorBase(it.trim()) }
         tokenPlanAccepted?.let { ConfigStore.setOnlineTokenPlanAccepted(it) }
+        roleVoiceEnabled?.let { ConfigStore.setRoleVoiceEnabled(it) }
         ConfigStore.notifyReload(context, "bridge_config")
         log("config updated")
         emit("status", JSONObject().put("phase", "config").toString())
@@ -243,8 +282,11 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
 
     override suspend fun validateKey(keyKind: String, apiKey: String): String? =
         withContext(Dispatchers.IO) {
-            val key = apiKey.trim()
-            if (key.isBlank()) return@withContext "密钥为空"
+            // 甲方 2026-09-15 反馈：输入框为空时应校验**已保存**的密钥
+            // （此前保存后输入框被清空，"校验密钥"必然报"密钥为空"，让人误以为没保存成功）。
+            val input = apiKey.trim()
+            val key = if (input.isNotEmpty()) input else ConfigStore.onlineApiKey().trim()
+            if (key.isBlank()) return@withContext "尚未保存密钥：请先填写密钥并点「保存密钥」"
             val base = OnlineSettings.resolveBaseUrl(keyKind, ConfigStore.onlineBaseUrl())
             val req = Request.Builder()
                 .url(base.trimEnd('/') + "/models")

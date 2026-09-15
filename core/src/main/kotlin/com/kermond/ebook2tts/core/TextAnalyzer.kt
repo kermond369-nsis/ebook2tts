@@ -16,9 +16,27 @@ data class TextSegment(
 object TextAnalyzer {
 
     private val DIALOGUE_EDGE = Regex("""^[“"「『](.+?)[”"」』][，。！？…]*$""")
+    /**
+     * 「xxx说/道/笑道/提醒道：“…”」式说话人抽取。
+     *
+     * 修复（2026-09-15 真机发现）：捕获组必须**非贪婪**且动词按**长优先**排列，
+     * 否则「苏岑笑道：」会被贪婪吃成 `苏岑笑`、「吴伯提醒道：」会被吃成 `吴伯提醒`。
+     */
     private val SPEAKER_BEFORE = Regex(
-        """([一-龥]{1,6})(?:说道|道|问道|答道|喊道|叫道|笑道|说|问|答)[:：]"""
+        """([一-龥]{1,6}?)(?:低声说|轻声说|大声说|冷冷地说|笑着说道|提醒道|说道|问道|答道|喊道|叫道|笑道|叹道|道|说|问|答|提醒|开口)[:：]"""
     )
+
+    /** 兜底清洗：去掉仍残留在名字尾部的言说动词（含副词修饰），避免角色库出现「吴伯提醒」这类脏键 */
+    private val HINT_TAIL = Regex(
+        """(?:低声|轻声|大声|冷冷地|笑着|急忙|连忙|开口|又|才)*(?:说道|提醒道|笑道|喊道|问道|答道|叹道|提醒|开口|道|说|问|答)+$"""
+    )
+
+    /** 归一化说话人提示；清洗后为空则返回 null（宁可不建档，也不要脏键） */
+    fun cleanSpeakerHint(hint: String?): String? {
+        val h = hint?.trim().orEmpty()
+        if (h.isEmpty()) return null
+        return h.replace(HINT_TAIL, "").trim().take(6).ifEmpty { null }
+    }
 
     fun analyze(raw: String): List<TextSegment> {
         // 逐行归一化：normalize() 会把换行压成空格；若整体先归一化，行结构丢失，
@@ -66,7 +84,7 @@ object TextAnalyzer {
             return TextSegment(SegmentKind.DIALOGUE, sentence.trim(), speakerHint = null)
         }
         val sp = SPEAKER_BEFORE.find(sentence)
-        val hint = sp?.groupValues?.get(1)
+        val hint = cleanSpeakerHint(sp?.groupValues?.get(1))
         if (hint != null) {
             return TextSegment(SegmentKind.DIALOGUE, sentence.trim(), speakerHint = hint)
         }

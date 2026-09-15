@@ -64,4 +64,32 @@ class TextAnalyzerTest {
         assertTrue(TextClean.hasSpeakable("第十二章"))
         assertTrue(TextClean.hasSpeakable("5"))
     }
+
+
+    // ---- 说话人抽取回归（2026-09-15 真机发现：贪婪捕获把动词尾字吃进名字） ----
+    @Test
+    fun speaker_hint_strips_two_char_verbs() {
+        val segs = TextAnalyzer.analyze("苏岑笑道：“早啊。”")
+        val d = segs.first { it.kind == SegmentKind.DIALOGUE }
+        assertEquals("苏岑", d.speakerHint)
+    }
+
+    @Test
+    fun speaker_hint_strips_compound_verb() {
+        val segs = TextAnalyzer.analyze("吴伯提醒道：“天不早了。”")
+        val d = segs.first { it.kind == SegmentKind.DIALOGUE }
+        assertEquals("吴伯", d.speakerHint)
+    }
+
+    @Test
+    fun speaker_hint_keeps_plain_name() {
+        assertEquals("林安", TextAnalyzer.analyze("林安说：“走吧。”").first { it.kind == SegmentKind.DIALOGUE }.speakerHint)
+    }
+
+    @Test
+    fun clean_speaker_hint_never_returns_blank_or_dirty() {
+        assertEquals(null, TextAnalyzer.cleanSpeakerHint("   "))
+        assertEquals(null, TextAnalyzer.cleanSpeakerHint("说道"))
+        assertEquals("吴伯", TextAnalyzer.cleanSpeakerHint("吴伯提醒"))
+    }
 }

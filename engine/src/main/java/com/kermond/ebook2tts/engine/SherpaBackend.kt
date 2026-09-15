@@ -14,6 +14,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Sherpa 后端。仅允许在 :tts_service 进程加载（AR-§1.7）。
+ *
+ * 锁纪律（ADR-008 / 红线 7）：本类所有 native 调用（load/release/generate 系列 / numSpeakers）
+ * 一律经 [NativeGate] 串行；**锁内绝不做网络与阻塞等待**（详见 NativeGate 注释）。
  * 流式：generateWithCallback（回调返回 0=停止、1=继续）。
  */
 class SherpaBackend(
@@ -34,9 +37,13 @@ class SherpaBackend(
     private val released = AtomicBoolean(false)
 
     fun isReady(): Boolean = tts != null && !released.get()
-    fun numSpeakers(): Int = runCatching { tts?.numSpeakers() ?: 0 }.getOrDefault(0)
+    /** native 读取：进同一把门（与换装/释放互斥） */
+    fun numSpeakers(): Int =
+        NativeGate.withLock { runCatching { tts?.numSpeakers() ?: 0 }.getOrDefault(0) }
 
-    fun load() {
+    fun load() = NativeGate.withLock { loadLocked() }
+
+    private fun loadLocked() {
         // 红线 4：native 模型只允许在 :tts_service 进程加载（主进程零推理）
         val cmdline = runCatching { File("/proc/self/cmdline").readBytes() }.getOrNull()
         if (!ProcessNames.isEngineProcess(ProcessNames.parseCmdline(cmdline))) {
@@ -122,6 +129,13 @@ class SherpaBackend(
         speakerId: Int,
         speed: Float,
         onPcm: (FloatArray) -> Boolean,
+    ): Boolean = NativeGate.withLock { generateStreamingLocked(text, speakerId, speed, onPcm) }
+
+    private fun generateStreamingLocked(
+        text: String,
+        speakerId: Int,
+        speed: Float,
+        onPcm: (FloatArray) -> Boolean,
     ): Boolean {
         val engine = tts ?: return false
         if (text.isBlank()) return false
@@ -143,7 +157,10 @@ class SherpaBackend(
         return stopped
     }
 
-    fun generatePcm(text: String, speakerId: Int, speed: Float): ByteArray {
+    fun generatePcm(text: String, speakerId: Int, speed: Float): ByteArray =
+        NativeGate.withLock { generatePcmLocked(text, speakerId, speed) }
+
+    private fun generatePcmLocked(text: String, speakerId: Int, speed: Float): ByteArray {
         val engine = tts ?: return ByteArray(0)
         if (text.isBlank()) return ByteArray(0)
         return try {
@@ -155,7 +172,9 @@ class SherpaBackend(
         }
     }
 
-    fun release() {
+    fun release() = NativeGate.withLock { releaseLocked() }
+
+    private fun releaseLocked() {
         if (!released.compareAndSet(false, true)) return
         try {
             tts?.release()

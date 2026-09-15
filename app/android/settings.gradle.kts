@@ -19,12 +19,12 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    // 版本策略：满足本机 Flutter 3.47 的最低构建要求（AGP ≥ 8.11.1、KGP ≥ 2.2.20、
+    // 版本策略：满足本机 Flutter 3.47 的最低构建要求（AGP ≥ 8.11.1、KGP ≥ 2.3.20（Flutter 弃用门槛）、
     // Gradle ≥ 8.14），同时保持 AGP 8.x 系列以兼容 :core / :engine 既有构建脚本。
     id("com.android.application") version "8.11.1" apply false
     id("com.android.library") version "8.11.1" apply false
-    id("org.jetbrains.kotlin.android") version "2.2.20" apply false
-    id("org.jetbrains.kotlin.jvm") version "2.2.20" apply false
+    id("org.jetbrains.kotlin.android") version "2.3.20" apply false
+    id("org.jetbrains.kotlin.jvm") version "2.3.20" apply false
 }
 
 include(":app")

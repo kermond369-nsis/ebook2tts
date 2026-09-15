@@ -5,7 +5,9 @@ plugins {
 
 android {
     namespace = "com.kermond.ebook2tts.engine"
-    compileSdk = 34
+    // compileSdk 与 App 侧对齐为 35（仅编译期 API 级别；targetSdk 仍 34）。
+    // 说明：不为 `shared_preferences` 之类依赖抬到 36（甲方 2026-09-15 判定 36 过度激进）。
+    compileSdk = 35
 
     defaultConfig {
         minSdk = 27
@@ -24,9 +26,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
     }
     packaging {
         jniLibs {
@@ -50,13 +49,17 @@ dependencies {
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    // ADR-014 / RQ-308：在线语速＝客户端时域伸缩，复用 androidx.media3 的 Sonic 实现
+    // （Apache-2.0、AOSP/ExoPlayer 同源；不自造 DSP、不引 FFmpeg）。
+    // 版本约束：media3-common 1.9.4 的 minCompileSdk=35（1.10+ 要求 36，与"不升级 36"的决策冲突）。
+    implementation("androidx.media3:media3-common:1.9.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.apache.commons:commons-compress:1.26.0")
     // IM-202 / ADR-004：多源测速 + 断点续传 + 清单拉取统一走 OkHttp
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.24")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.3.20")
     // Android 单元测试中提供真实 org.json（android.jar 的 stub 会抛 not mocked）
     testImplementation("org.json:json:20240303")
     // 本地 HTTP 服务器测试替身（IM-202 续传/整包语义；OkHttp 官方测试组件）
@@ -64,16 +67,21 @@ dependencies {
 }
 
 /**
- * sherpa-onnx JNI 以**精确方法签名**反射回调 Kotlin 函数
- * （期望 `SherpaBackend$$ExternalSyntheticLambda0.invoke([F)Ljava/lang/Integer;`）。
- * 新版工具链（KGP 2.x）可能把 lambda 编译成 invokedynamic/不同描述符，导致
- * `JNI DETECTED ERROR: NoSuchMethodError ... invoke([F)Ljava/lang/Integer;` 并在合成线程 SIGABRT。
- * 故显式固定为 class-based lambda 与 1.9 语言级别，保证与预编译 native 库的调用约定一致。
+ * sherpa-onnx JNI 以**精确方法签名**反射回调 Kotlin 函数：native 侧实查
+ * `sherpa-onnx/jni/offline-tts.cc` 的 `CallCallback()` 用
+ * `GetMethodID(cls, "invoke", "([F)Ljava/lang/Integer;")` 查找回调；
+ * 查不到时该分支**不清理 pending 异常**，直接表现为合成线程
+ * `NoSuchMethodError ... invoke([F)Ljava/lang/Integer;` → JNI DETECTED ERROR → SIGABRT。
+ *
+ * 实测（Kotlin 2.3.20，kotlinc 编译 + 反射等价于 GetMethodID）：
+ * - 默认 invokedynamic：运行时类只有 `invoke(Object)Object` ⇒ **JNI 查找必挂**；
+ * - `-Xlambdas=class`：类继承 `kotlin.jvm.internal.Lambda` 且声明 `invoke(float[]) -> Integer` ⇒ 查找成功。
+ * 故 **`-Xlambdas=class` 是唯一必须保留项**（约 2.3.0 起 JVM 的 1.9 语言级别已进入弃用倒计时，
+ * 按"弃用即升级"原则不再固定 languageVersion/apiVersion；jvmTarget 走 compilerOptions DSL）。
  */
 kotlin {
     compilerOptions {
-        languageVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_1_9)
-        apiVersion.set(org.jetbrains.kotlin.gradle.dsl.KotlinVersion.KOTLIN_1_9)
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         freeCompilerArgs.add("-Xlambdas=class")
     }
 }

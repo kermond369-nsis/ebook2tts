@@ -158,9 +158,14 @@ class OnlineBackend(
                 }
                 val source = resp.body?.source()
                     ?: return OnlineOutcome.Failed(OnlineFailureKind.NETWORK, "empty_body", "响应无内容")
-                var firstAtMs = 0L
-                var bytes = 0
-                var chunks = 0
+                // 用小型可变容器承载计数：Kotlin 2.x 会对"循环内自增、循环外读取"的局部 var
+                // 误报 `The value changed ... is never used`，属性写入不触发该误报（语义完全相同）。
+                class Stats {
+                    var firstAtMs = 0L
+                    var bytes = 0
+                    var chunks = 0
+                }
+                val st = Stats()
                 var carry: Byte? = null // PCM16 帧对齐：奇数尾字节暂存并与下一块拼接
                 while (true) {
                     if (isCancelled()) return OnlineOutcome.Cancelled
@@ -180,13 +185,17 @@ class OnlineBackend(
                         pcm = pcm.copyOfRange(0, pcm.size - 1)
                     }
                     if (pcm.isEmpty()) continue
-                    if (firstAtMs == 0L) firstAtMs = System.currentTimeMillis()
-                    bytes += pcm.size
-                    chunks++
+                    if (st.firstAtMs == 0L) st.firstAtMs = System.currentTimeMillis()
+                    st.bytes += pcm.size
+                    st.chunks++
                     if (!onPcm(pcm)) return OnlineOutcome.Cancelled
                 }
-                if (bytes > 0) {
-                    OnlineOutcome.Ok(bytes, chunks, if (firstAtMs > 0L) firstAtMs - t0 else -1L)
+                if (st.bytes > 0) {
+                    OnlineOutcome.Ok(
+                        st.bytes,
+                        st.chunks,
+                        if (st.firstAtMs > 0L) st.firstAtMs - t0 else -1L,
+                    )
                 } else {
                     OnlineOutcome.Failed(OnlineFailureKind.EMPTY, "empty", "流结束但未收到音频数据")
                 }

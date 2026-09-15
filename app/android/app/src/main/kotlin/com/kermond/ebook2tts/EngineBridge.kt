@@ -474,7 +474,13 @@ data class ConfigDto (
   /** 允许使用数据流量（默认关）。 */
   val allowMobileData: Boolean,
   /** 自定义下载镜像基地址（空 = 官方源）。 */
-  val customMirror: String
+  val customMirror: String,
+  /** 「AI 角色音色」开关（RQ-507；默认开，仅在线时有意义）。 */
+  val roleVoiceEnabled: Boolean,
+  /** 已建档角色数（诊断展示）。 */
+  val roleCount: Long,
+  /** 角色精标成功次数（文本用量粗估，诊断展示）。 */
+  val roleRefineCount: Long
 )
  {
   companion object {
@@ -487,7 +493,10 @@ data class ConfigDto (
       val baseUrl = pigeonVar_list[5] as String
       val allowMobileData = pigeonVar_list[6] as Boolean
       val customMirror = pigeonVar_list[7] as String
-      return ConfigDto(speed, onlineEnabled, tokenPlanAccepted, keyKind, apiKeyMasked, baseUrl, allowMobileData, customMirror)
+      val roleVoiceEnabled = pigeonVar_list[8] as Boolean
+      val roleCount = pigeonVar_list[9] as Long
+      val roleRefineCount = pigeonVar_list[10] as Long
+      return ConfigDto(speed, onlineEnabled, tokenPlanAccepted, keyKind, apiKeyMasked, baseUrl, allowMobileData, customMirror, roleVoiceEnabled, roleCount, roleRefineCount)
     }
   }
   fun toList(): List<Any?> {
@@ -500,6 +509,9 @@ data class ConfigDto (
       baseUrl,
       allowMobileData,
       customMirror,
+      roleVoiceEnabled,
+      roleCount,
+      roleRefineCount,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -510,7 +522,7 @@ data class ConfigDto (
       return true
     }
     val other = other as ConfigDto
-    return EngineBridgePigeonUtils.deepEquals(this.speed, other.speed) && EngineBridgePigeonUtils.deepEquals(this.onlineEnabled, other.onlineEnabled) && EngineBridgePigeonUtils.deepEquals(this.tokenPlanAccepted, other.tokenPlanAccepted) && EngineBridgePigeonUtils.deepEquals(this.keyKind, other.keyKind) && EngineBridgePigeonUtils.deepEquals(this.apiKeyMasked, other.apiKeyMasked) && EngineBridgePigeonUtils.deepEquals(this.baseUrl, other.baseUrl) && EngineBridgePigeonUtils.deepEquals(this.allowMobileData, other.allowMobileData) && EngineBridgePigeonUtils.deepEquals(this.customMirror, other.customMirror)
+    return EngineBridgePigeonUtils.deepEquals(this.speed, other.speed) && EngineBridgePigeonUtils.deepEquals(this.onlineEnabled, other.onlineEnabled) && EngineBridgePigeonUtils.deepEquals(this.tokenPlanAccepted, other.tokenPlanAccepted) && EngineBridgePigeonUtils.deepEquals(this.keyKind, other.keyKind) && EngineBridgePigeonUtils.deepEquals(this.apiKeyMasked, other.apiKeyMasked) && EngineBridgePigeonUtils.deepEquals(this.baseUrl, other.baseUrl) && EngineBridgePigeonUtils.deepEquals(this.allowMobileData, other.allowMobileData) && EngineBridgePigeonUtils.deepEquals(this.customMirror, other.customMirror) && EngineBridgePigeonUtils.deepEquals(this.roleVoiceEnabled, other.roleVoiceEnabled) && EngineBridgePigeonUtils.deepEquals(this.roleCount, other.roleCount) && EngineBridgePigeonUtils.deepEquals(this.roleRefineCount, other.roleRefineCount)
   }
 
   override fun hashCode(): Int {
@@ -523,10 +535,13 @@ data class ConfigDto (
     result = 31 * result + EngineBridgePigeonUtils.deepHash(this.baseUrl)
     result = 31 * result + EngineBridgePigeonUtils.deepHash(this.allowMobileData)
     result = 31 * result + EngineBridgePigeonUtils.deepHash(this.customMirror)
+    result = 31 * result + EngineBridgePigeonUtils.deepHash(this.roleVoiceEnabled)
+    result = 31 * result + EngineBridgePigeonUtils.deepHash(this.roleCount)
+    result = 31 * result + EngineBridgePigeonUtils.deepHash(this.roleRefineCount)
     return result
   }
   override fun toString(): String {
-    return "ConfigDto(speed=$speed, onlineEnabled=$onlineEnabled, tokenPlanAccepted=$tokenPlanAccepted, keyKind=$keyKind, apiKeyMasked=$apiKeyMasked, baseUrl=$baseUrl, allowMobileData=$allowMobileData, customMirror=$customMirror)"
+    return "ConfigDto(speed=$speed, onlineEnabled=$onlineEnabled, tokenPlanAccepted=$tokenPlanAccepted, keyKind=$keyKind, apiKeyMasked=$apiKeyMasked, baseUrl=$baseUrl, allowMobileData=$allowMobileData, customMirror=$customMirror, roleVoiceEnabled=$roleVoiceEnabled, roleCount=$roleCount, roleRefineCount=$roleRefineCount)"
   }
 }
 
@@ -673,7 +688,7 @@ interface EngineHostApi {
   /** 读取配置。 */
   suspend fun config(): ConfigDto
   /** 更新配置（null = 不改；写入后广播引擎热重载）。 */
-  suspend fun updateConfig(speed: Double?, onlineEnabled: Boolean?, allowMobileData: Boolean?, keyKind: String?, apiKey: String?, baseUrl: String?, customMirror: String?, tokenPlanAccepted: Boolean?)
+  suspend fun updateConfig(speed: Double?, onlineEnabled: Boolean?, allowMobileData: Boolean?, keyKind: String?, apiKey: String?, baseUrl: String?, customMirror: String?, tokenPlanAccepted: Boolean?, roleVoiceEnabled: Boolean?)
   /** 最近日志（桥接观测到的引擎事件；新的在下）。 */
   suspend fun recentLogs(): List<String>
   /** 性能计数清零（丢块计数等）。 */
@@ -908,9 +923,10 @@ interface EngineHostApi {
             val baseUrlArg = args[5] as String?
             val customMirrorArg = args[6] as String?
             val tokenPlanAcceptedArg = args[7] as Boolean?
+            val roleVoiceEnabledArg = args[8] as Boolean?
             CoroutineScope(Dispatchers.Main).launch {
               val wrapped: List<Any?> = try {
-                api.updateConfig(speedArg, onlineEnabledArg, allowMobileDataArg, keyKindArg, apiKeyArg, baseUrlArg, customMirrorArg, tokenPlanAcceptedArg)
+                api.updateConfig(speedArg, onlineEnabledArg, allowMobileDataArg, keyKindArg, apiKeyArg, baseUrlArg, customMirrorArg, tokenPlanAcceptedArg, roleVoiceEnabledArg)
                 listOf(null)
               } catch (exception: Throwable) {
                 EngineBridgePigeonUtils.wrapError(exception)

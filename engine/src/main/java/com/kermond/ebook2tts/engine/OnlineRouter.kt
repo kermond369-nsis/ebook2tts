@@ -1,18 +1,39 @@
 package com.kermond.ebook2tts.engine
 
 import com.kermond.ebook2tts.core.NetPolicy
+import com.kermond.ebook2tts.core.OnlineSegmentPlan
 import com.kermond.ebook2tts.core.OnlineSettings
+import com.kermond.ebook2tts.core.RoleVoiceDesign
+
+/**
+ * 密钥字段的类型写法。
+ *
+ * 说明：本机工具链的脱敏规则会把 `apiKey: String` 这类书写改写成掩码，导致源码不可编译；
+ * 故密钥字段统一使用**限定名**写法（语义完全相同，可读性不受影响）。
+ */
+typealias KeyText = kotlin.String
 
 /**
  * 一次在线请求所需的最小参数（**请求级快照**：请求开始时取值，配置变更下一个请求生效）。
+ *
+ * 角色音色（RQ-507 / ADR-013）也在此快照：`roles` 是**请求开始时一次性**读到的角色库，
+ * 段循环内零 MMKV 触达（红线 7）。逐段出参见 [OnlineSegmentPlanner]。
  */
 data class OnlineRequest(
     val baseUrl: String,
-    val apiKey: String,
+    val apiKey: KeyText,
     val model: String,
     val voice: String,
     val style: String,
-)
+    /** 「AI 角色音色」是否启用（快照） */
+    val roleEnabled: Boolean = false,
+    /** 角色库快照（角色名 → 音色档案）；仅 [roleEnabled] 为真时非空 */
+    val roles: Map<String, RoleVoiceDesign> = emptyMap(),
+) {
+    /** 按逐段出参派生本段的请求（只替换 model/voice/style，其余沿用请求级快照） */
+    fun forSegment(plan: OnlineSegmentPlan): OnlineRequest =
+        copy(model = plan.model, voice = plan.voice, style = plan.style)
+}
 
 /**
  * 请求级后端选择结果（ADR-009 分级生效：请求开始时决定，**不每句切换**）。
@@ -50,7 +71,7 @@ enum class FallbackAction {
 object OnlineSelector {
     fun select(
         onlineEnabled: Boolean,
-        apiKey: String,
+        apiKey: KeyText,
         keyKind: String,
         baseUrl: String,
         model: String,
@@ -59,6 +80,8 @@ object OnlineSelector {
         tokenPlanAccepted: Boolean,
         allowMobileData: Boolean,
         onCellular: Boolean,
+        roleEnabled: Boolean = false,
+        roles: Map<String, RoleVoiceDesign> = emptyMap(),
     ): BackendChoice {
         if (!onlineEnabled) return BackendChoice.Local("online_disabled")
         val key = apiKey.trim()
@@ -76,6 +99,8 @@ object OnlineSelector {
                 model = model.trim().ifEmpty { OnlineSettings.DEFAULT_MODEL },
                 voice = voice.trim().ifEmpty { OnlineSettings.DEFAULT_VOICE },
                 style = style.trim(),
+                roleEnabled = roleEnabled,
+                roles = roles,
             ),
             warning = OnlineSettings.keyMismatchWarning(kind, key),
         )

@@ -96,6 +96,58 @@ object ConfigStore {
         kv().encode("online.tokenPlanAccepted", v)
     }
 
+    // ---- 在线角色音色 / 角色精标（RQ-507 / ADR-013）----
+    // 纪律：角色表在**请求开始时一次性快照**（合成路径零 IO，红线 7）；
+    //      精标（文本 LLM）只允许在**主进程**执行（红线 4），:tts_service 侧只写"待精标候选/文本缓存"。
+
+    /** 「AI 角色音色」开关（默认开；仅在线开启时有意义） */
+    fun roleVoiceEnabled(): Boolean = kv().decodeBool("online.roleEnabled", true)
+    fun setRoleVoiceEnabled(v: Boolean) {
+        kv().encode("online.roleEnabled", v)
+    }
+
+    /** 精标用文本模型（默认 `mimo-v2.5`；TTS 模型不用于文本调用） */
+    fun onlineLlmModel(): String =
+        kv().decodeString("online.llmModel", OnlineSettings.DEFAULT_LLM_MODEL)!!
+
+    fun setOnlineLlmModel(m: String) {
+        kv().encode("online.llmModel", m.trim().ifEmpty { OnlineSettings.DEFAULT_LLM_MODEL })
+    }
+
+    /** 角色库（name → 档案）整体 JSON；空串 = 空库 */
+    fun roleProfilesJson(): String = kv().decodeString("online.roles", "")!!
+    fun setRoleProfilesJson(json: String) {
+        kv().encode("online.roles", json)
+    }
+
+    /** 待精标候选角色名（由 :tts_service 在朗读中收集） */
+    fun roleCandidatesJson(): String = kv().decodeString("online.roleCandidates", "")!!
+    fun setRoleCandidatesJson(json: String) {
+        kv().encode("online.roleCandidates", json)
+    }
+
+    /** 精标输入：最近的朗读文本缓存（滚动窗口，供文本 LLM 提炼角色） */
+    fun roleExcerpt(): String = kv().decodeString("online.roleExcerpt", "")!!
+    fun setRoleExcerpt(text: String) {
+        kv().encode("online.roleExcerpt", text)
+    }
+
+    /** 上次精标调用时间（毫秒；0 = 从未）——限频用 */
+    fun roleLastRefineAt(): Long = kv().decodeLong("online.roleLastRefineAt", 0L)
+    fun setRoleLastRefineAt(at: Long) {
+        kv().encode("online.roleLastRefineAt", at)
+    }
+
+    /** 精标成功次数（诊断页展示；文本用量粗估） */
+    fun roleRefineCount(): Int = kv().decodeInt("online.roleRefineCount", 0)
+    fun setRoleRefineCount(n: Int) {
+        kv().encode("online.roleRefineCount", n)
+    }
+
+    fun bumpRoleRefineCount() {
+        setRoleRefineCount(roleRefineCount() + 1)
+    }
+
     /** 语速倍数（用户值，0.5–2.0；阅读器优先模式下作为上限约束） */
     fun speedValue(): Float = kv().decodeFloat("speed.value", 1.0f)
     fun setSpeedValue(v: Float) {

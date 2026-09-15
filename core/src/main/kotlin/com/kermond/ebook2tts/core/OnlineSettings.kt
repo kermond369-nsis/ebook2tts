@@ -20,6 +20,18 @@ object OnlineSettings {
     const val DEFAULT_VOICE = "白桦"
     const val DEFAULT_MODEL = "mimo-v2.5-tts"
 
+    /**
+     * 定制音色模型（官方文档实查 2026-07-15/09-15）：`user` 消息即音色设计描述，**不接受 `audio.voice`**。
+     * 用于在线多角色（RQ-507）：按角色档案逐段造音色。
+     */
+    const val VOICEDESIGN_MODEL = "mimo-v2.5-tts-voicedesign"
+
+    /** 文本模型（角色精标用；官方模型列表实查：`mimo-v2.5`）。注意：这是文本调用，非 TTS */
+    const val DEFAULT_LLM_MODEL = "mimo-v2.5"
+
+    /** 该模型是否为定制音色模型（协议分支依据：含 voicedesign 即 user 消息走音色描述） */
+    fun isVoiceDesignModel(model: String): Boolean = model.contains("voicedesign")
+
     /** MiMo 流式 PCM16 单声道采样率（协议常量，24kHz；与 Kokoro int8 一致） */
     const val SAMPLE_RATE = 24000
 

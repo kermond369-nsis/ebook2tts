@@ -11,6 +11,13 @@ const String _defaultSample =
     '夜深了，台灯把书桌照成一小块温暖的岛。他翻开书，让文字顺着目光流进心里，'
     '再被一个温和的声音读出来——不急不缓，一字一顿，像是有人在旁边陪着。';
 
+/// 多角色示例文本：每句都带**明确说话人提示 + 引号对白**，
+/// 供引擎的说话人识别（`TextAnalyzer`）与多角色分配（在线＝voicedesign 造音色）落地验证。
+const String _multiRoleSample =
+    '林安说：“你先别急着走。”\n'
+    '苏岑笑道：“我听着呢。”\n'
+    '吴伯提醒道：“天不早了，明天还要早起。”';
+
 /// 示例朗读页（IM-304）：可编辑文本 + 播放/停止 + 当前音色/语速显示。
 class SamplePage extends ConsumerStatefulWidget {
   const SamplePage({super.key});
@@ -78,9 +85,15 @@ class _SamplePageState extends ConsumerState<SamplePage> {
                   const Spacer(),
                   TextButton(
                     onPressed: () {
+                      setState(() => _text.text = _multiRoleSample);
+                    },
+                    child: const Text('多角色示例'),
+                  ),
+                  TextButton(
+                    onPressed: () {
                       setState(() => _text.text = _defaultSample);
                     },
-                    child: const Text('恢复示例文本'),
+                    child: const Text('恢复默认'),
                   ),
                 ],
               ),

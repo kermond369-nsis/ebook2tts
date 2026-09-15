@@ -138,6 +138,37 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   height: 1.5,
                 ),
               ),
+              const SizedBox(height: 14),
+              // ②b AI 角色音色（在线）：RQ-507 / RQ-509
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'AI 角色音色（在线）',
+                      style: TextStyle(fontSize: 14.5, color: Tokens.text),
+                    ),
+                  ),
+                  Switch(
+                    value: config.roleVoiceEnabled,
+                    onChanged: config.onlineEnabled
+                        ? (v) => _toggleRoleVoice(v)
+                        : null,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                config.roleVoiceEnabled
+                    ? '已开启：本机读取已朗读过的片段做角色分析（产生少量文本用量），'
+                        '为每个角色造一个可区分的声音；音色前后可能略有差异，属正常。'
+                        '已建档角色 ${config.roleCount} 个 · 已分析 ${config.roleRefineCount} 次。'
+                    : '已关闭：在线朗读使用单一音色（不调用文本模型做角色分析）。',
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: Tokens.textDim,
+                  height: 1.5,
+                ),
+              ),
               if (onlineError != null) ...[
                 const SizedBox(height: 10),
                 Container(
@@ -291,7 +322,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   labelText: 'API Key（密钥）',
                   hintText: isPlan ? 'tp-开头的套餐密钥' : 'sk-开头的按量计费密钥',
                   helperText: canEditKey
-                      ? '密钥只保存在本机，用于直接向平台方发起请求；本 App 不上传、不转发。'
+                      ? '密钥只保存在本机，用于直接向平台方发起请求；本 App 不上传、不转发。\n'
+                    '输入框留空时点「校验密钥」＝校验已保存的密钥。'
                       : '选择 Token Plan 后，需先完成风险确认才能填写密钥。',
                   helperMaxLines: 3,
                 ),
@@ -592,6 +624,18 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
   }
 
+  /// 「AI 角色音色」开关（RQ-509）：仅在线开启时可操作；关闭后在线恢复单音色。
+  Future<void> _toggleRoleVoice(bool value) async {
+    await ref.read(configProvider.notifier).save(roleVoiceEnabled: value);
+    if (!mounted) {
+      return;
+    }
+    showAppSnack(
+      context,
+      value ? 'AI 角色音色已开启：将按角色造可区分的声音' : 'AI 角色音色已关闭：在线朗读为单音色',
+    );
+  }
+
   Future<void> _switchKeyKind(String kind, AppConfig config) async {
     if (kind == config.keyKind) {
       return;
@@ -622,10 +666,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
   }
 
+  /// 校验密钥。
+  ///
+  /// 语义（甲方 2026-09-15 指出原设计反直觉：保存后输入框即清空，反而无法校验）：
+  /// - 输入框**有内容** → 校验输入框里的这把（校验通过后再保存）；
+  /// - 输入框**为空** → 校验**已保存**的那把。
   Future<void> _validateKey(AppConfig config) async {
-    final key = _apiKey.text.trim();
-    if (key.isEmpty) {
-      showAppSnack(context, '请先填写密钥再校验', danger: true);
+    final typed = _apiKey.text.trim();
+    final usingSaved = typed.isEmpty;
+    if (usingSaved && config.apiKeyMasked.trim().isEmpty) {
+      showAppSnack(context, '尚未保存密钥：请先填写密钥并点「保存密钥」', danger: true);
       return;
     }
     setState(() {
@@ -634,7 +684,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     });
     final error = await ref.read(configProvider.notifier).validateKey(
           keyKind: config.keyKind,
-          apiKey: key,
+          apiKey: usingSaved ? "" : typed,
         );
     if (!mounted) {
       return;
@@ -644,7 +694,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       _keyError = error;
     });
     if (error == null) {
-      showAppSnack(context, '校验通过：密钥可用');
+      showAppSnack(
+        context,
+        usingSaved ? '校验通过：已保存的密钥可用' : '校验通过：输入的密钥可用（记得点「保存密钥」）',
+      );
     }
   }
 
