@@ -32,16 +32,23 @@ jobs:
         with:
           gradle-version: "9.1.0"
 
+      # 直接使用 runner 预装的 Android SDK（ubuntu-latest 自带 ANDROID_HOME=/usr/local/lib/android/sdk）。
+      # 不用 android-actions/setup-android：其内部执行 `sdkmanager tools`，
+      # 而现 runner 的 cmdline-tools 20.0 已无 `tools` 包 ⇒ "Failed to find package 'tools'" 失败（2026-09-15 实测）。
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=${SDK}" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=${SDK}" >> "$GITHUB_ENV"
+          echo "${SDK}/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
       # compileSdk 36（甲方 2026-09-15 决定）；AGP 9 要求 build-tools ≥ 36.0.0
       - name: Install Android platform
         run: |
-          sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
-          yes | sdkmanager --licenses || true
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
-      - name: Core unit tests
+      - name:  Core unit tests
         run: gradle :core:test --no-daemon --stacktrace
 
       - name: Engine unit tests
