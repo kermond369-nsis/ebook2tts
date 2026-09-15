@@ -10,6 +10,7 @@ import com.kermond.ebook2tts.core.ModelCatalog
 import com.kermond.ebook2tts.core.OnlineSegmentPlan
 import com.kermond.ebook2tts.core.OnlineSegmentPlanner
 import com.kermond.ebook2tts.core.OnlineSettings
+import com.kermond.ebook2tts.core.OnlineVoiceMap
 import com.kermond.ebook2tts.core.PcmChunker
 import com.kermond.ebook2tts.core.ProcessNames
 import com.kermond.ebook2tts.core.RoleAssigner
@@ -245,11 +246,28 @@ class SynthesisCoordinator(
      * 无网络探测、无 await、无线程/锁变化 —— 本地路径保持既有行为。
      * 开启但不可用（无 Key / Token Plan 未确认 / 蜂窝未允许）→ 打点回落本地。
      */
-    private fun selectOnline(): BackendChoice.Online? {
+    /**
+     * 在线音色映射（P6 / IM-517）：请求音色（阅读器显式 / 旁白）→ MiMo 预置音色。
+     * 只读 MMKV 与静态音色表，不加载任何模型，可在合成线程外的请求准备阶段调用。
+     */
+    private fun mappedOnlineVoice(voiceHint: String?): String {
+        val pool = VoiceCatalog.poolForModel(ConfigStore.modelId())
+        val narrator = ConfigStore.narratorVoice()
+        val requested = voiceHint?.takeIf { VoiceCatalog.isValid(pool, it) } ?: narrator
+        val fallback = OnlineVoiceMap.genderOf(narrator, pool)
+        val mapped = OnlineVoiceMap.pick(requested, pool, fallback)
+        Log.i(TAG, "ONLINE|voice_map|from=$requested|gender=${OnlineVoiceMap.genderOf(requested, pool)}|to=$mapped")
+        return mapped
+    }
+
+    private fun selectOnline(voiceHint: String?): BackendChoice.Online? {
         if (!ConfigStore.onlineEnabled()) return null
         // 角色音色（RQ-507 / ADR-013）：**请求级一次性快照**；角色开关关闭时零触达
         val roleEnabled = ConfigStore.roleVoiceEnabled()
         val roles = if (roleEnabled) RoleRegistry.snapshot() else emptyMap()
+        // 在线音色映射（P6 / IM-517）：不再写死 ConfigStore.onlineVoice()（默认白桦＝男声）；
+        // 阅读器显式音色 → 本地池元数据(语言/性别) → MiMo 预置；不可解析时跟随**旁白性别**。
+        val mapped = mappedOnlineVoice(voiceHint)
         return when (
             val choice = OnlineSelector.select(
                 onlineEnabled = true, // 已在上层短路（在线关闭零额外动作）
@@ -257,7 +275,7 @@ class SynthesisCoordinator(
                 keyKind = ConfigStore.onlineKeyKind(),
                 baseUrl = ConfigStore.onlineBaseUrl(),
                 model = ConfigStore.onlineModel(),
-                voice = ConfigStore.onlineVoice(),
+                voice = mapped,
                 style = ConfigStore.onlineStyle(),
                 tokenPlanAccepted = ConfigStore.onlineTokenPlanAccepted(),
                 allowMobileData = ConfigStore.netAllowMobileData(),
@@ -342,7 +360,8 @@ class SynthesisCoordinator(
 
         // ---- 请求级后端接缝（ADR-009 分级生效：请求开始时决定，本请求内不每句切换）----
         // 在线关闭时 selectOnline() 仅一次 MMKV 内存读即返回 null：无网络、无 await、无线程/锁变化。
-        val onlineChoice = selectOnline()
+        // 显式音色（阅读器请求）参与在线音色映射：IM-517
+        val onlineChoice = selectOnline(explicitVoiceName)
         val onlineRequest = onlineChoice?.request
         var fallbackLogged = false
         if (onlineRequest != null) {

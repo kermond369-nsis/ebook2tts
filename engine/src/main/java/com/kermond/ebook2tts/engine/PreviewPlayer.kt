@@ -11,6 +11,7 @@ import android.util.Log
 import com.kermond.ebook2tts.core.ModelCatalog
 import com.kermond.ebook2tts.core.OnlineSegmentPlanner
 import com.kermond.ebook2tts.core.OnlineSettings
+import com.kermond.ebook2tts.core.OnlineVoiceMap
 import com.kermond.ebook2tts.core.PcmChunker
 import com.kermond.ebook2tts.core.SpeedMapper
 import com.kermond.ebook2tts.core.TextAnalyzer
@@ -71,8 +72,12 @@ class PreviewPlayer(private val context: Context) {
                     playing.set(false)
                     return@execute
                 }
-                // 请求级后端接缝：在线优先；失败静默回落本地完整重播
-                if (tryOnlinePreview(cleaned, listener, speed)) return@execute
+                // 试听语义分离（P6 / IM-518）：
+                // - voiceId != null ⇒「试听某个本地音色」（音色库场景）⇒ **强制本地合成**，
+                //   因为在线模型只有 8 个预置音色，用它"试听本地音色"毫无意义（甲方 P0 报障①）；
+                // - voiceId == null ⇒「跟随旁白朗读」（示例朗读场景）⇒ 允许在线，在线音色按旁白性别映射（IM-517）。
+                val explicitVoice = voiceId?.takeIf { it.isNotBlank() }
+                if (explicitVoice == null && tryOnlinePreview(cleaned, listener, speed, null)) return@execute
                 if (!playing.get()) return@execute // 在线失败后用户已停止：不再回落
                 val modelId = ConfigStore.modelId()
                 val spec = ModelCatalog.byId(modelId)
@@ -128,8 +133,13 @@ class PreviewPlayer(private val context: Context) {
      * @return true = 已处理（播放完成 / 用户停止 / 在线失败后用户已停止）；
      *         false = 在线失败且用户仍在播放 → 调用方回落本地**完整重播**（静默）。
      */
-    private fun tryOnlinePreview(cleaned: String, listener: Listener, speed: Float): Boolean {
-        val choice = selectOnline() ?: return false
+    private fun tryOnlinePreview(
+        cleaned: String,
+        listener: Listener,
+        speed: Float,
+        voiceHint: String?,
+    ): Boolean {
+        val choice = selectOnline(voiceHint) ?: return false
         val request = choice.request
         Log.i(
             TAG,
@@ -229,11 +239,29 @@ class PreviewPlayer(private val context: Context) {
     /**
      * 请求级在线选择（同 SynthesisCoordinator.selectOnline；在线关闭 → 单次 MMKV 布尔读后短路）。
      */
-    private fun selectOnline(): BackendChoice.Online? {
+    /**
+     * 计算本次请求应使用的在线音色（IM-517）：
+     * 请求音色/旁白 → 本地音色元数据（语言+性别）→ MiMo 预置音色。
+     * 仅读 MMKV 与静态音色表，不做任何模型加载，可在请求线程安全调用。
+     */
+    private fun mappedOnlineVoice(voiceHint: String?): String {
+        val pool = VoiceCatalog.poolForModel(ConfigStore.modelId())
+        val narrator = ConfigStore.narratorVoice()
+        val fallback = OnlineVoiceMap.genderOf(narrator, pool)
+        val requested = voiceHint?.takeIf { VoiceCatalog.isValid(pool, it) } ?: narrator
+        val mapped = OnlineVoiceMap.pick(requested, pool, fallback)
+        val from = if (voiceHint != null && requested != voiceHint) "$voiceHint(未识别→旁白)" else requested
+        Log.i(TAG, "ONLINE|voice_map|from=$from|gender=${OnlineVoiceMap.genderOf(requested, pool)}|to=$mapped")
+        return mapped
+    }
+
+    private fun selectOnline(voiceHint: String?): BackendChoice.Online? {
         if (!ConfigStore.onlineEnabled()) return null
         // 角色音色（RQ-507）：请求级一次性快照（试听同样适用）
         val roleEnabled = ConfigStore.roleVoiceEnabled()
         val roles = if (roleEnabled) RoleRegistry.snapshot() else emptyMap()
+        // 在线音色映射（P6 / IM-517）：不再写死 ConfigStore.onlineVoice()（默认白桦＝男声）
+        val mapped = mappedOnlineVoice(voiceHint)
         return when (
             val choice = OnlineSelector.select(
                 onlineEnabled = true, // 已在上层短路（在线关闭零额外动作）
@@ -241,7 +269,7 @@ class PreviewPlayer(private val context: Context) {
                 keyKind = ConfigStore.onlineKeyKind(),
                 baseUrl = ConfigStore.onlineBaseUrl(),
                 model = ConfigStore.onlineModel(),
-                voice = ConfigStore.onlineVoice(),
+                voice = mapped,
                 style = ConfigStore.onlineStyle(),
                 tokenPlanAccepted = ConfigStore.onlineTokenPlanAccepted(),
                 allowMobileData = ConfigStore.netAllowMobileData(),

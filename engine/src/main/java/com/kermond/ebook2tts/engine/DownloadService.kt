@@ -24,9 +24,21 @@ class DownloadService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     private var downloader: ModelDownloader? = null
 
+    /** 与 [ModelDownloader] 同步的取消视图（供通知收尾判断） */
+    private val cancelled: Boolean get() = downloader?.isCancelled() == true
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 取消动作（P6 / IM-520）：必须能**立即**执行，且不依赖工作线程退出。
+        // 此前只有 stopService() 一条路 ⇒ 工作线程卡在阻塞读时服务迟迟不退（Stop FGS timeout）。
+        if (intent?.action == ACTION_CANCEL) {
+            Log.i(TAG, "cancel action received: abort in-flight io")
+            downloader?.cancel()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         val modelId = intent?.getStringExtra(EXTRA_MODEL_ID) ?: ModelCatalog.DEFAULT_ID
         // 通知标题先用通用文案：清单解析含网络（远程 manifest），严禁在主线程做
         startAsForeground("模型下载")
@@ -58,7 +70,15 @@ class DownloadService : Service() {
                 }
 
                 override fun onError(message: String) {
+                    if (cancelled) return // 已走取消路径，勿覆盖提示
                     updateNotification(spec.label, message)
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+
+                override fun onCancelled(bytes: Long, total: Long) {
+                    Log.i(TAG, "CANCELLED|bytes=$bytes|total=$total 进度保留")
+                    updateNotification(spec.label, "已取消（进度已保留）")
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
@@ -120,6 +140,7 @@ class DownloadService : Service() {
 
     companion object {
         const val EXTRA_MODEL_ID = "model_id"
+        const val ACTION_CANCEL = "com.kermond.ebook2tts.action.DOWNLOAD_CANCEL"
         private const val CHANNEL = "download"
         private const val FOREGROUND_ID = 42
         private const val TAG = "DownloadService"
@@ -128,6 +149,19 @@ class DownloadService : Service() {
             val i = Intent(context, DownloadService::class.java)
                 .putExtra(EXTRA_MODEL_ID, modelId)
             context.startForegroundService(i)
+        }
+
+        /**
+         * 取消下载（P6 / IM-520）：先把取消动作投递给引擎进程内的服务（立即断流 + 退前台），
+         * 再 `stopService` 兜底。二者顺序不可颠倒。
+         */
+        fun cancel(context: Context) {
+            runCatching {
+                context.startService(
+                    Intent(context, DownloadService::class.java).setAction(ACTION_CANCEL)
+                )
+            }.onFailure { Log.w(TAG, "cancel intent failed: ${it.javaClass.simpleName}") }
+            runCatching { context.stopService(Intent(context, DownloadService::class.java)) }
         }
     }
 }

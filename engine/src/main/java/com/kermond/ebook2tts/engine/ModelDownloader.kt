@@ -27,6 +27,9 @@ class ModelDownloader(private val context: Context) {
         fun onProgress(bytes: Long, total: Long, stage: String)
         fun onSuccess(modelId: String)
         fun onError(message: String)
+
+        /** 用户取消（P6 / IM-521）：默认按"非错误"处理，实现方可覆写以更新 UI 文案 */
+        fun onCancelled(bytes: Long, total: Long) {}
     }
 
     @Volatile
@@ -38,9 +41,17 @@ class ModelDownloader(private val context: Context) {
     @Volatile
     private var activeId: String? = null
 
+    /**
+     * 取消（P6 / IM-520）：置标志 + **立即中断在途 IO**（否则最长等一个 read timeout 才生效）。
+     * `.part` 保留 ⇒ 下次仍可断点续传（甲方要求"保留进度"）。
+     */
     fun cancel() {
         cancelled = true
+        http.abort()
     }
+
+    /** 当前是否处于"用户已取消"状态（供前台服务收尾判断，P6 / IM-520） */
+    fun isCancelled(): Boolean = cancelled
 
     fun modelsDir(): File = File(context.filesDir, "models")
 
@@ -89,7 +100,13 @@ class ModelDownloader(private val context: Context) {
             part.parentFile?.mkdirs()
 
             if (!downloadWithSources(s, part, progress)) {
-                progress.onError("下载失败，可尝试浏览器手动下载或配置自定义镜像")
+                // 用户取消 ≠ 下载失败：分开报，避免 UI 把取消显示成错误（IM-521）
+                if (cancelled) {
+                    Log.i(TAG, "CANCELLED|${s.id}|part=${part.length()} 保留进度供续传")
+                    progress.onCancelled(part.length(), s.downloadBytes)
+                } else {
+                    progress.onError("下载失败，可尝试浏览器手动下载或配置自定义镜像")
+                }
                 return
             }
             // 清单实测体积对账（ERR-001）：不一致说明清单漂移，交由 SHA-256 兜底判定
@@ -143,7 +160,7 @@ class ModelDownloader(private val context: Context) {
     private fun downloadWithSources(spec: ModelSpec, part: File, progress: Progress): Boolean {
         val sources = spec.sources
         if (sources.isEmpty()) return false
-        val fastest = http.pickFastest(sources)
+        val fastest = http.pickFastest(sources) { cancelled }
         val ordered = if (fastest == null) sources else listOf(fastest) + sources.filter { it != fastest }
         for (url in ordered) {
             if (cancelled) return false

@@ -164,7 +164,9 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
 
     override suspend fun cancelDownload() {
         progressJob?.cancel()
-        context.stopService(Intent(context, DownloadService::class.java))
+        // P6 / IM-520：先用取消动作让引擎**立即断流**并退前台，再兜底停服务
+        // （此前只 stopService ⇒ 工作线程卡在阻塞读时服务迟迟不退）
+        DownloadService.cancel(context)
         log("download cancel")
         emit("status", JSONObject().put("state", "cancelled").toString())
     }

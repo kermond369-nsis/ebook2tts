@@ -7,6 +7,7 @@ import com.kermond.ebook2tts.core.ModelCatalog
 import com.kermond.ebook2tts.core.OnlineSettings
 import com.kermond.ebook2tts.core.VoiceCatalog
 import com.tencent.mmkv.MMKV
+import com.kermond.ebook2tts.core.InferenceThreads
 
 /**
  * 配置存储：MMKV 多进程（ADR-002）。
@@ -43,9 +44,25 @@ object ConfigStore {
         kv().encode("speed.mode", mode)
     }
 
-    fun threads(): Int = kv().decodeInt("engine.threads", 2)
+    /**
+     * 推理线程数（P6 / IM-522，甲方 2026-09-15 口径："做自适应的最多 8 并发"）。
+     *
+     * 背景：此前**写死 2**，8 核设备上白白闲置 6 核，本地合成实测 RTF≈1.6（甲方 P0 报障③"合成时间太长"）。
+     * 取值策略：
+     * - 用户显式设置（engine.threads > 0）优先，夹取到 [1, 8]；
+     * - 未设置时按核数自适应 = clamp(核数 - 1, 2, 8)（留 1 核给音频写入/UI，其余全给推理，上限 8）。
+     *
+     * 说明（甲方问"各家怎么办"）：ONNX Runtime / sherpa-onnx 走的是 intra-op 线程池，
+     * 典型做法是 num_threads ≈ 物理大核数（常取 4~8）；超过 ~8 后收益被内存带宽吃掉，
+     * 且会与音频回放线程抢核导致推流抖动，故本实现设 8 为硬上限。
+     */
+    fun threads(): Int = InferenceThreads.resolve(
+        cores = Runtime.getRuntime().availableProcessors(),
+        stored = kv().decodeInt("engine.threads", 0),
+    )
+
     fun setThreads(n: Int) {
-        kv().encode("engine.threads", n.coerceIn(1, 4))
+        kv().encode("engine.threads", n.coerceIn(1, MAX_THREADS))
     }
 
     // ---- 在线朗读（MiMo；P3 §4 协议键）----
@@ -220,4 +237,7 @@ object ConfigStore {
         i.putExtra("code", code)
         context.sendBroadcast(i)
     }
+
+    /** 推理线程硬上限（甲方口径：最多 8 并发） */
+    const val MAX_THREADS = 8
 }

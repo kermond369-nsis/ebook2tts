@@ -106,7 +106,7 @@ class SherpaBackend(
             val engine = OfflineTts(config = config)
             tts = engine
             sampleRate = engine.sampleRate()
-            Log.i(TAG, "loaded sr=$sampleRate speakers=${engine.numSpeakers()}")
+            Log.i(TAG, "loaded sr=$sampleRate speakers=${engine.numSpeakers()} threads=${ConfigStore.threads()}")
         } catch (t: Throwable) {
             loadError = t.message ?: t.toString()
             Log.e(TAG, "load failed", t)

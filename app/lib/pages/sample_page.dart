@@ -49,7 +49,8 @@ class _SamplePageState extends ConsumerState<SamplePage> {
     final preview = ref.watch(previewProvider);
 
     final narrator = voices.where((v) => v.isNarrator).toList();
-    final narratorId = narrator.isEmpty ? null : narrator.first.id;
+    // P6 / IM-518：本页朗读语义＝「跟随旁白」，不再把旁白 id 当作试听音色传下去
+    // （传具体音色 id 表示「试听该本地音色」→ 引擎强制本地合成）。
     final narratorName = narrator.isEmpty ? '（默认音色）' : narrator.first.name;
     final speed = config?.speed ?? 1.0;
     final playing = preview.playing;
@@ -141,7 +142,10 @@ class _SamplePageState extends ConsumerState<SamplePage> {
                   }
                   await ref.read(previewProvider.notifier).preview(
                         text: _text.text,
-                        voiceId: narratorId ?? '',
+                        // 语义分离（P6 / IM-518）：
+                        // - 音色库「试听」传具体音色 id ⇒ 引擎强制**本地**合成（试听本地音色）；
+                        // - 本页「开始朗读」= 跟随旁白 ⇒ 传空串，允许在线，在线音色按**旁白性别**映射（IM-517）。
+                        voiceId: '',
                       );
                 },
         ),

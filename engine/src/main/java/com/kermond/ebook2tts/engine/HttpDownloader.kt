@@ -7,6 +7,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.Callable
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -21,6 +22,21 @@ import java.util.concurrent.TimeUnit
 class HttpDownloader(
     private val client: OkHttpClient = defaultClient(),
 ) : ManifestSource {
+
+    /**
+     * 在途请求登记（P6 / IM-520）。
+     *
+     * 为什么必须有：取消此前只置标志位，而线程可能正阻塞在 `connect()`/`read()` 上
+     * （read timeout 默认 60s）⇒ 取消后最长挂 60s 才退出，表现为"点了取消卡住但也不下载"，
+     * 并连带 `Stop FGS timeout: DownloadService`。持有 [okhttp3.Call] 后可在取消瞬间断流。
+     */
+    private val activeCalls = CopyOnWriteArrayList<okhttp3.Call>()
+
+    /** 立即中断所有在途请求（取消/销毁时调用；幂等） */
+    fun abort() {
+        activeCalls.forEach { runCatching { it.cancel() } }
+        activeCalls.clear()
+    }
 
     override fun fetch(url: String): String? = runCatching {
         val req = Request.Builder().url(url).header("Accept", "application/json").build()
@@ -38,7 +54,7 @@ class HttpDownloader(
      *
      * 探测**并行**执行：国内直连时官方源往往要等到超时才失败，串行会把下载起跑拖慢数倍。
      */
-    fun pickFastest(sources: List<String>): String? {
+    fun pickFastest(sources: List<String>, isCancelled: () -> Boolean = { false }): String? {
         if (sources.isEmpty()) return null
         if (sources.size == 1) return sources.first()
         val pool = Executors.newFixedThreadPool(minOf(sources.size, 3))
@@ -47,6 +63,12 @@ class HttpDownloader(
             var best: String? = null
             var bestRate = -1.0
             for (f in futures) {
+                // 探测阶段同样必须响应取消（最长 15s×并行，此前完全不可打断）
+                if (isCancelled()) {
+                    Log.i(TAG, "probe cancelled by user")
+                    pool.shutdownNow()
+                    return null
+                }
                 val (s, rate) = f.get()
                 Log.i(TAG, "probe|$s|rate=${"%.1f".format(rate)}KB/s")
                 if (rate > bestRate) {
@@ -71,8 +93,10 @@ class HttpDownloader(
                 .url(url)
                 .header("Range", "bytes=0-${PROBE_BYTES - 1}")
                 .build()
-            client.newBuilder().callTimeout(PROBE_TIMEOUT_S, TimeUnit.SECONDS).build()
-                .newCall(req).execute().use { resp ->
+            val probeCall = client.newBuilder().callTimeout(PROBE_TIMEOUT_S, TimeUnit.SECONDS).build().newCall(req)
+            activeCalls.add(probeCall)
+            try {
+            probeCall.execute().use { resp ->
                     if (resp.code != 206 && !resp.isSuccessful) return@use -1.0
                     val body = resp.body ?: return@use -1.0
                     var read = 0L
@@ -87,6 +111,9 @@ class HttpDownloader(
                     val ms = (System.nanoTime() - t0) / 1_000_000.0
                     if (read <= 0L || ms <= 0.0) -1.0 else read / ms
                 }
+            } finally {
+                activeCalls.remove(probeCall)
+            }
         }
         result.exceptionOrNull()?.let { Log.w(TAG, "probe failed|$url|${it.javaClass.simpleName}: ${it.message}") }
         return result.getOrDefault(-1.0)
@@ -115,7 +142,10 @@ class HttpDownloader(
         val req = Request.Builder().url(url)
             .apply { if (offset > 0L) header("Range", "bytes=$offset-") }
             .build()
-        client.newBuilder().build().newCall(req).execute().use { resp ->
+        val call = client.newBuilder().build().newCall(req)
+        activeCalls.add(call)
+        try {
+        call.execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
             val append = resp.code == 206 && offset > 0L
             if (!append && offset > 0L) {
@@ -140,6 +170,9 @@ class HttpDownloader(
                 out.flush()
             }
             Log.i(TAG, "DONE|url=$url|bytes=${part.length()}")
+        }
+        } finally {
+            activeCalls.remove(call)
         }
         if (expectedBytes > 0L && part.length() != expectedBytes) {
             throw IOException("incomplete download ${part.length()}/$expectedBytes")
