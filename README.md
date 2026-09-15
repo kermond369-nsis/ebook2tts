@@ -116,6 +116,15 @@ cd app && flutter pub get && flutter build apk --debug
 | `ci.yml` | push / PR | `:core:test` + `:engine:testDebugUnitTest` + Flutter 构建 debug APK + 产物上传 |
 | `release.yml` | push main / `v*` tag | 同上单测 + 构建，自动发布 `build-<shortsha>`（tag 时用 tag 名） |
 
+## 合规文本
+
+App 内原文展示的两份法律文本，公开可查以便核对：
+
+- [免责声明（在线朗读）](docs/免责声明-在线朗读.md)
+- [Token Plan 风险确认（弹窗文本）](docs/弹窗文本-TokenPlan风险确认.md)
+
+> 其余约束类文档（需求书 / 架构书 / 实现报告 / 批次计划 / 实施规格等）不随本仓库分发，按交付渠道单独提供。
+
 ## 版本与文档
 
 - 当前 `0.2.0-alpha.1`（重构目标 **0.2.0**）。
