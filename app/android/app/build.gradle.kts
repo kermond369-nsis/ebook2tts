@@ -7,8 +7,8 @@ plugins {
 
 android {
     namespace = "com.kermond.ebook2tts"
-    // P3 规格 §1：minSdk 27、compileSdk 35
-    compileSdk = 35
+    // P3 规格 §1：minSdk 27；P5-A：compileSdk 35 → 36（甲方 2026-09-15 决定）
+    compileSdk = 36
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

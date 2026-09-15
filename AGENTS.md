@@ -29,6 +29,10 @@
 - 引擎服务运行于独立进程 `:tts_service`；**主进程零推理**（试听合成＋播放同样收敛进引擎进程）。
 - `minSdk 27` / `targetSdk 34`；正式包 `arm64-v8a + armeabi-v7a`；debug 保留 `x86_64`（模拟器链路）。
 - 提交前须全绿：`:core:test`、`:engine:testDebugUnitTest`、`flutter test`、CI。
+- **两套 Gradle 构建，勿混**：仓库根只含 `:core` / `:engine`；`:app` 只存在于 `app/android` 这套**独立** Gradle 构建（其 `settings.gradle.kts` 反向 include 本仓 `:core`/`:engine`）。
+  ⇒ 任何脚本与 CI **不得**在仓库根调用 `:app:*` 任务；APK 一律由 **Flutter 工具**驱动产出（`app/build/app/outputs/flutter-apk/app-debug.apk`）。
+- 工具链（P5-A 起）：Gradle **9.1.0**、AGP **9.0.1**、KGP 2.3.20（保留，`android.builtInKotlin=false`）、`compileSdk 36`。
+  切 built-in Kotlin 属 **P5-B**，须先满足《P5-批次计划》§二.2.2 的两项前置条件（Flutter 放行 + 实测 `-Xlambdas=class` 可传并 dexdump 复核）。
 - **禁止提交**：密钥/凭据、内网地址与主机名、本机绝对路径、构建产物、模型文件（大文件走下载流程）。
 
 ---

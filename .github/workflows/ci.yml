@@ -15,7 +15,7 @@ jobs:
   build:
     name: Lint + unit tests + debug APK
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -26,17 +26,19 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle 8.5
+      # P5-A：根工程（:core/:engine）已升 AGP 9.0.1 ⇒ 需 Gradle ≥ 9.1.0
+      - name: Set up Gradle 9.1.0
         uses: gradle/actions/setup-gradle@v5
         with:
-          gradle-version: "8.5"
+          gradle-version: "9.1.0"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
+      # compileSdk 36（甲方 2026-09-15 决定）；AGP 9 要求 build-tools ≥ 36.0.0
       - name: Install Android platform
         run: |
-          sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
           yes | sdkmanager --licenses || true
 
       - name: Core unit tests
@@ -45,18 +47,30 @@ jobs:
       - name: Engine unit tests
         run: gradle :engine:testDebugUnitTest --no-daemon --stacktrace
 
+      # :app 只存在于 app/android 这套独立 Gradle 构建里（根工程不含 :app），
+      # 且 Flutter 入口必须由 Flutter 工具驱动（settings.gradle.kts 依赖其生成的 local.properties）。
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.4"
+          channel: stable
+          cache: true
+
       - name: Build debug APK
         id: build
+        working-directory: app
         run: |
-          gradle :app:assembleDebug --no-daemon --stacktrace
+          set -e
+          flutter pub get
+          flutter build apk --debug
           SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
-          APK=app/build/outputs/apk/debug/app-debug.apk
+          APK=build/app/outputs/flutter-apk/app-debug.apk
           test -f "$APK"
           OUT="ebook2tts-local-${SHORT_SHA}-debug.apk"
-          cp "$APK" "$OUT"
+          cp "$APK" "../$OUT"
           echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
           echo "ARTIFACT=${OUT}" >> "$GITHUB_ENV"
-          ls -lh "$OUT"
+          ls -lh "../$OUT"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v6
@@ -64,4 +78,4 @@ jobs:
           name: ebook2tts-local-${{ env.SHORT_SHA }}-debug
           path: ${{ env.ARTIFACT }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7

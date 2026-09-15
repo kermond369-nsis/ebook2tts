@@ -19,7 +19,7 @@ jobs:
   release:
     name: Build and publish
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -30,34 +30,48 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle 8.5
+      # P5-A：根工程（:core/:engine）已升 AGP 9.0.1 ⇒ 需 Gradle ≥ 9.1.0
+      - name: Set up Gradle 9.1.0
         uses: gradle/actions/setup-gradle@v5
         with:
-          gradle-version: "8.5"
+          gradle-version: "9.1.0"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
       - name: Install Android platform
         run: |
-          sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
           yes | sdkmanager --licenses || true
 
       - name: Unit tests
-        run: gradle :core:test --no-daemon
+        run: |
+          gradle :core:test --no-daemon --stacktrace
+          gradle :engine:testDebugUnitTest --no-daemon --stacktrace
+
+      # :app 位于 app/android 这套独立 Gradle 构建；APK 必须由 Flutter 工具产出
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.4"
+          channel: stable
+          cache: true
 
       - name: Build debug APK
         id: build
+        working-directory: app
         run: |
-          gradle :app:assembleDebug --no-daemon --stacktrace
+          set -e
+          flutter pub get
+          flutter build apk --debug
           SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
-          APK_SRC=app/build/outputs/apk/debug/app-debug.apk
+          APK_SRC=build/app/outputs/flutter-apk/app-debug.apk
           test -f "$APK_SRC"
           APK="ebook2tts-local-${SHORT_SHA}-debug.apk"
-          cp "$APK_SRC" "$APK"
+          cp "$APK_SRC" "../$APK"
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "apk=${APK}" >> "$GITHUB_OUTPUT"
-          ls -lh "$APK"
+          ls -lh "../$APK"
 
       - name: Resolve release tag
         id: meta
@@ -84,7 +98,7 @@ jobs:
           else
             TITLE="build ${SHORT_SHA}"
           fi
-          BODY="Automated debug APK for com.mimo.ebook2tts.local (0.2.0-alpha.1 rewrite).
+          BODY="Automated debug APK for com.kermond.ebook2tts (0.2.0-alpha.1 rewrite).
 
           - Commit: ${GITHUB_SHA}
           - Abbreviated: ${SHORT_SHA}

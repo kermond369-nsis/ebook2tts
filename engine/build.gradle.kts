@@ -5,9 +5,9 @@ plugins {
 
 android {
     namespace = "com.kermond.ebook2tts.engine"
-    // compileSdk 与 App 侧对齐为 35（仅编译期 API 级别；targetSdk 仍 34）。
+    // compileSdk 与 App 侧对齐为 36（P5-A，甲方 2026-09-15 决定；仅编译期 API 级别，targetSdk 仍 34）。
     // 说明：不为 `shared_preferences` 之类依赖抬到 36（甲方 2026-09-15 判定 36 过度激进）。
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 27
