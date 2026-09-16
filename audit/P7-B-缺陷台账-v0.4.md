@@ -589,3 +589,27 @@ ro.soc.manufacturer   = Qualcomm
 - **处置**：例外判定**按厂商/家族模式匹配**（`ro.soc.manufacturer`/`ro.soc.model` 命中 XRING 家族关键字即豁免告警），
   **不硬编码具体型号串**；并在实现中标注"**O1/O3 实际串待实测确认**"（拿到真机或 `getprop` 转储后回填）。
   该做法同时满足"玄戒不告警"（RQ-515）与"不猜事实"两条约束。
+
+---
+
+### E6 实施：LocalModeAdvisor（P7 / RQ-515 · RQ-516 / IM-543）已实现并通过单测
+
+**实现**：`core/LocalModeAdvisor.kt`（纯函数，可单测）
+- `judge(socModel, manufacturer, cores) → Verdict(warn, reason)`
+- `perfCoreCount` 同源的阈值口径：**骁龙 ≥ 8 Gen 1（SM8450+）/ 天玑 ≥ 9300（MT698x）/ 核数 < 4 一律低配**；
+- **玄戒（XRING）族豁免**：按族名模式匹配（`xring|玄戒`），**不硬编码 O1/O3 型号串**（未实测确认，见上文）；
+- **fail-open**：取不到型号 / 其它厂商（Tensor、Exynos、麒麟…）**不误伤**（不告警）并留 `reason` 便于后续用真实数据收紧；
+- 警告文案常量 `WARNING_TEXT = "性能不足，可能延迟极大"`（与 RQ-515 原文一致）。
+
+**测试**：`core/LocalModeAdvisorTest.kt` 7 例全绿（**core 86/86**）：
+- 本机真实案例 **SDM845 → 告警**（`snapdragon_before_8gen1`）✓
+- SM8450/8475/8550/8650/8750 → 不告警 ✓
+- 天玑 9300 / MT6989 → 不告警；天玑 1200 / MT6895 → 告警 ✓
+- 玄戒 O1/O3（含中文"玄戒"）→ 豁免 ✓
+- 核数 2/3 → 告警（与型号无关的硬门槛）✓
+- 取不到型号 / Tensor / Exynos → fail-open 不误伤 ✓
+
+**E6 未完成部分（明确标注，不含糊）**
+1. **Android 侧接线**：把判定接到"用户选择本地模式"的 UI 流程，弹 RQ-515 警告（需动 Flutter/引擎桥，属行为改动，放在与 UI 同批）；
+2. **运行时微基准兜底**：尚未实现（需要一次可控的本地合成采样，建议与缓存机制同批做，避免重复付出 85 s）；
+3. **玄戒 O1/O3 实际型号串**：待实测确认后回填（当前用族名匹配已满足"不告警"要求）。
