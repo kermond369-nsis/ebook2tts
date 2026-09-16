@@ -55,12 +55,14 @@ class LocalTextToSpeechService : TextToSpeechService() {
     override fun onDestroy() {
         coordinator.requestStop()
         reloadReceiver?.let { runCatching { unregisterReceiver(it) } }
-        // ADR-008：置停止 → super → 守卫锁内释放（shutdown 内 withLock）
         try {
             super.onDestroy()
         } finally {
-            coordinator.shutdown()
-            CoordinatorHolder.detach(coordinator) // P7 / R1：注销共享点
+            // ── P7 / R1 修正（BUG-P7-016 副产物）：协调器与常驻后端改为**进程生命周期** ──
+            // 不再随 TTS 服务销毁而 shutdown/detach。原因：系统解绑销毁 TTS 服务时，预览通道可能仍在
+            // 使用该后端；此前 detach 会让下一次预览 getOrCreate **再造一个协调器并再次预热**
+            // （真机 12 s/次），实测还出现同进程 4 个 tts-reload 线程并存的迹象。
+            // 释放交由进程回收；常驻内存仅一份模型副本（与 agy 复核"不做主动释放"的结论一致）。
         }
     }
 

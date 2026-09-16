@@ -380,3 +380,31 @@
 - `NativeGate` 本身是 `ReentrantLock`（无自旋），故 133% CPU 属**真实计算**而非锁自旋。
 - **新观察（待定论）**：同进程内出现 **4 个 `tts-reload` 线程处于运行态**，而 `reloadExecutor` 是 `newSingleThreadExecutor`（正常只应有 1 个线程）⇒ 强烈提示**多协调器实例并存**：`CoordinatorHolder` 在 `LocalTextToSpeechService.onDestroy` 时 `detach`，若此时预览仍在使用，下一次预览会 `getOrCreate` **再创建一个协调器并再次预热**。
 - **下一步**：① 把协调器改为**进程生命周期单例**（服务销毁不 shutdown/detach，交由进程回收）；② 复测确认单实例；③ 若阻塞仍在，再对 `generatePcm` 分段计时（sherpa `generate` 回调粒度）。
+
+#### BUG-P7-016 追加二：**纠正上一条推断**（7 个 `tts-reload` ≠ 7 个协调器）+ 阻塞点确证
+
+**纠正（我上一条的"多协调器实例"推断是错的）**——线程栈逐条核对：
+- `tts-reload` sysTid 30998：`LockSupport.park` ⇒ 唯一那个**单线程 executor 的空闲 worker** ✓；
+- `tts-reload` sysTid 30999–31004（共 6 个）：栈底全在 **`libonnxruntime.so` 内部**（futex 条件等待）⇒ 它们是
+  **onnxruntime 的 intra-op 线程池**，只是 Linux `comm` **继承**了创建者线程名，看起来像 `tts-reload`；
+  数量恰好 = `threads=7` 配置（6 worker + 1 主）✓。
+- 交叉验证：`dumpsys meminfo` Native Heap **341 MB**（**一份**模型，非 7 份）；本次会话 `SherpaBackend loaded` **1 次**。
+- ⇒ **单例修正生效**：进程内仅 1 个协调器、1 份模型、1 次加载（R1/R3/R6b 结论成立，不受影响）。
+
+**阻塞点确证（`debuggerd -b`，卡住 37 s 时抓取）**：
+```
+"preview-player" sysTid=30997
+  #00..#13  libonnxruntime.so（推理内核）
+  #14..#18  libsherpa-onnx-jni.so
+  #19       Java_com_k2fsa_sherpa_onnx_OfflineTts_generateImpl+304
+  #26       com.k2fsa.sherpa.onnx.OfflineTts.generate
+  #31       com.kermond.ebook2tts.engine.SherpaBackend.generatePcmLocked
+  #56       PreviewPlayer$preview$1（预览线程）
+```
+- ⇒ 预览线程**不在锁上、不在音频写入上**，而是**正在执行原生推理**，只是**极慢**（24 字 > 37 s；
+  同机早先基线同一文本合成+播放 ≈ 7 s）。
+- 排除：锁等待（无 `ReentrantLock`/`NativeGate` 帧）、AudioTrack 写入（`track_open ok=60 ms` 后无写入帧）、
+  多模型争抢（仅 1 份模型）。
+- 下一批定位（不写设备/ROM 分支）：① 同机对比 `threads=7 / 4 / 2` 的合成耗时（疑 ONNX intra-op 在
+  SDM845 大核调度下的病态表现）；② 对比系统通道（Legado 本地朗读）同文本耗时，判断是否预览路径特有；
+  ③ 记录合成期间 `/proc/<pid>/stat` 各线程 CPU 与温度/频率（是否热降频）。
