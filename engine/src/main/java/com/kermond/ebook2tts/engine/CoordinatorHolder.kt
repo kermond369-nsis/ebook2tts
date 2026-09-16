@@ -20,6 +20,10 @@ import android.content.Context
  */
 object CoordinatorHolder {
 
+    /** 预览通道是否正在播放（P7 追加：空闲/内存压力下可安全释放常驻后端的前提） */
+    @Volatile
+    var previewActive: Boolean = false
+
     @Volatile
     private var coordinator: SynthesisCoordinator? = null
 

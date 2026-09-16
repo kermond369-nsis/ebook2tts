@@ -101,6 +101,7 @@ class PreviewPlayer(private val context: Context) {
                 val pool = VoiceCatalog.poolForModel(modelId, backend.numSpeakers())
                 val voice = VoiceCatalog.resolve(pool, voiceId ?: ConfigStore.narratorVoice())
                 // P7 插桩（BUG-P7-016）：定位"首个请求 playing 之后迟迟不结束"的阻塞点
+                CoordinatorHolder.previewActive = true // P7：预览活跃标记（内存压力释放判定用）
                 val tTask = System.currentTimeMillis()
                 val tTrack = System.currentTimeMillis()
                 val trackOk = startTrack(backend.sampleRate, listener)
@@ -131,6 +132,7 @@ class PreviewPlayer(private val context: Context) {
                     listener.onProgress((doneSeg * 100) / segments.size.coerceAtLeast(1))
                 }
                 // fade out
+                CoordinatorHolder.previewActive = false
                 Log.i(TAG, "PREVIEW|segments_done|count=$doneSeg|total_ms=${System.currentTimeMillis() - tTask}")
                 runCatching { track?.stop() }
                 // P7 / R1：仅"自建实例"才在此释放；借用协调器的常驻后端一律不释放

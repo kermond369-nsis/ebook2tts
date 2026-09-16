@@ -19,11 +19,12 @@ class InferenceThreadsTopologyTest {
     private val homogeneous6 = List(6) { 2_000_000 }
 
     @Test
-    fun `异构核 大核数为 4 时自动线程数不超过大核数`() {
+    fun `异构核 自动线程数取实测最优档 2（甲方 2026-09-17 口径）`() {
         val perf = InferenceThreads.perfCoreCount(sdm845)
-        assertEquals(4, perf)
-        // 旧实现会给 cores-1 = 7（实测最慢）；新实现在异构核上收敛到 4
-        assertEquals(4, InferenceThreads.resolve(cores = 8, stored = 0, perfCores = perf))
+        assertEquals(4, perf) // 分簇识别：4 个大核
+        // 实测（真机 SDM845）：7 线程 108.0 s、4 线程 83.6 s、**2 线程 69.0 s** ⇒ 异构核自动取 2
+        assertEquals(2, InferenceThreads.resolve(cores = 8, stored = 0, perfCores = perf))
+        assertEquals(InferenceThreads.AUTO_HETERO, InferenceThreads.resolve(cores = 8, stored = 0, perfCores = perf))
     }
 
     @Test
