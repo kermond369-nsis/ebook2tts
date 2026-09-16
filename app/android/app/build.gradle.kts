@@ -55,17 +55,10 @@ android {
                 abiFilters.add("arm64-v8a")
             }
             // 正式签名由发布线配置；当前阶段沿用调试签名，保证 `flutter run --release` 可用
-            signingConfig = if (keyProps.isNotEmpty()) {
-                signingConfigs.getByName("release")
-            } else {
-                // P7 复核整改（agy 2026-09-17）：**release 缺签名凭据必须构建失败**，
-                // 严禁静默回退调试密钥（否则可能产出无法覆盖升级的"伪 release"包）。
-                // debug 变体不受影响（本块位于 buildTypes.release 内）。
-                throw GradleException(
-                    "缺少 key.properties：release 构建必须提供发布签名凭据。" +
-                        "（调试请用 debug 变体；CI 请注入 secrets）",
-                )
-            }
+            // P7 复核整改（agy 2026-09-17）：release 缺凭据的**失败判定放在任务执行期**（见文件末尾
+            // 的 assembleRelease 守卫），此处只在有凭据时切到发布签名。
+            // ！注意：此处是**配置期**代码，绝不能 throw —— 否则 CI（无 key.properties）连 debug 构建都无法配置。
+            signingConfig = if (keyProps.isNotEmpty()) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
     }
 
@@ -102,4 +95,17 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     // 桥接 validateKey 的网络调用走 OkHttp（与 :engine 同版本，避免版本漂移）。
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+}
+
+// ── P7 / E8：release 构建的签名守卫（**任务执行期**校验，不影响 debug 与 CI 配置阶段）──
+// 目的：严禁在没有发布签名凭据时静默产出"伪 release"包（无法覆盖升级）。
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    doFirst {
+        val f = rootProject.file("key.properties")
+        if (!f.exists()) {
+            throw GradleException(
+                "缺少 key.properties：release 构建必须提供发布签名凭据（调试请用 debug 变体；CI 请注入 secrets）",
+            )
+        }
+    }
 }
