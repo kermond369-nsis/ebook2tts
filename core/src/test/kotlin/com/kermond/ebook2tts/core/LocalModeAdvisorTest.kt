@@ -2,6 +2,7 @@ package com.kermond.ebook2tts.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -62,5 +63,26 @@ class LocalModeAdvisorTest {
     @Test
     fun `警告文案与需求书一致`() {
         assertEquals("性能不足，可能延迟极大", LocalModeAdvisor.WARNING_TEXT)
+    }
+    @Test
+    fun `非小米厂商含 O1 的串不得被当作玄戒豁免（agy 复核收紧项）`() {
+        // ① 低端骁龙 + 串含 O1：不得豁免，且应按老骁龙告警
+        val v1 = LocalModeAdvisor.judge(socModel = "SM6115-O1", manufacturer = "Qualcomm", cores = 8)
+        assertNotEquals("xring_exempt", v1.reason)
+        assertTrue("低端骁龙含 O1 串应告警", v1.warn)
+
+        // ② 非小米厂商、无法判定型号的串：绝不能豁免为玄戒（fail-open 不等于"玄戒"）
+        val v2 = LocalModeAdvisor.judge(socModel = "POCO1", manufacturer = "Qualcomm", cores = 8)
+        assertNotEquals("xring_exempt", v2.reason)
+
+        // ③ 高性能骁龙 + 串含 O1：不告警（因为它是 8 Gen 1，而非因为"玄戒"）
+        val v3 = LocalModeAdvisor.judge(socModel = "SM8450-O1", manufacturer = "Qualcomm", cores = 8)
+        assertFalse(v3.warn)
+        assertNotEquals("xring_exempt", v3.reason)
+
+        // ④ 小米厂商 + 型号 O1 ⇒ 豁免
+        val v4 = LocalModeAdvisor.judge(socModel = "O1", manufacturer = "Xiaomi", cores = 10)
+        assertFalse(v4.warn)
+        assertEquals("xring_exempt", v4.reason)
     }
 }

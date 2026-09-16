@@ -55,7 +55,17 @@ android {
                 abiFilters.add("arm64-v8a")
             }
             // 正式签名由发布线配置；当前阶段沿用调试签名，保证 `flutter run --release` 可用
-            signingConfig = if (keyProps.isNotEmpty()) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
+            signingConfig = if (keyProps.isNotEmpty()) {
+                signingConfigs.getByName("release")
+            } else {
+                // P7 复核整改（agy 2026-09-17）：**release 缺签名凭据必须构建失败**，
+                // 严禁静默回退调试密钥（否则可能产出无法覆盖升级的"伪 release"包）。
+                // debug 变体不受影响（本块位于 buildTypes.release 内）。
+                throw GradleException(
+                    "缺少 key.properties：release 构建必须提供发布签名凭据。" +
+                        "（调试请用 debug 变体；CI 请注入 secrets）",
+                )
+            }
         }
     }
 

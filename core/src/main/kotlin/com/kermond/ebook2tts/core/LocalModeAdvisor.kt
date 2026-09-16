@@ -30,7 +30,15 @@ object LocalModeAdvisor {
      * ⇒ 采用"族名 + 已知型号串"双保险：族名（xring/玄戒）覆盖未发布的后续型号，
      *    已知串（O1）保证即使平台只回型号号也能命中。
      */
-    private val XRING_FAMILY = Regex("(?i)xring|玄戒|\\bO[13]\\b")
+    /**
+     * 玄戒（XRING）豁免的**前置厂商校验**（依 agy 2026-09-17 复核意见收紧）：
+     * 仅当厂商为小米系（Xiaomi / POCO / Redmi）**且**型号串命中族名/已知串时才豁免，
+     * 避免"任何含 O1 的串"被误豁免（如 `SM8450-O1`、`POCO1`）。
+     */
+    private val XIAOMI_VENDORS = Regex("(?i)xring|xiaomi|redmi|poco|玄戒")
+
+    /** 族名/已知型号串（**仅在厂商校验通过后才参与判定**） */
+    private val XRING_FAMILY = Regex("(?i)(xring|玄戒)|(^|\\s|-)O[13]($|\\s|-)")
 
     /** 已知玄戒型号串（甲方口径：至少写 O1；O3 待实测确认后回填） */
     val XRING_KNOWN_MODELS = listOf("O1", "XRING O1")
@@ -67,7 +75,9 @@ object LocalModeAdvisor {
         val id = "$manufacturer $socModel".trim()
         if (id.isBlank()) return Verdict(false, "unknown_soc")
 
-        if (XRING_FAMILY.containsMatchIn(id)) return Verdict(false, "xring_exempt")
+        if (XIAOMI_VENDORS.containsMatchIn("$manufacturer $socModel") && XRING_FAMILY.containsMatchIn(socModel)) {
+            return Verdict(false, "xring_exempt")
+        }
 
         if (cores in 1 until MIN_CORES) return Verdict(true, "cores_below_$MIN_CORES")
 
