@@ -340,3 +340,27 @@
 | 观察项 | `W/PlaybackSynthesisRequest: done() was called before start() call` —— 属 AOSP 在 STOPPED 态的正常提示（与 AR-§1.4 约定一致），**非缺陷**，登记为观察项 |
 | 副作用（如实登记） | 该测试经甲方已开启的**在线**配置发出 **3 次**在线合成请求（消耗其 MiMo 额度）；测试后已 `force-stop` Legado 停止朗读；Legado 阅读进度可能小幅前移（由 6/12 起读） |
 | 设备状态恢复 | Legado 已停止；本 App 保持安装、配置未改动 |
+
+---
+
+### BUG-P7-016 ｜ 预览播放链路阻塞：首个试听请求长时间不结束 ⇒ 第二个请求排队数十秒 ｜ **P1（待定位）**
+
+- **模块**：`:engine`（`PreviewPlayer.preview()`：`startTrack()` → `track.write()` 循环）
+- **真机证据（P7-C 修复后，Mi MIX 2S）**：
+  ```
+  08:27:50.211  PREVIEW|start        （第 1 次）
+  08:28:02.494  SherpaBackend loaded （协调器预热加载，全会话仅此 1 次）
+  08:28:02.514  PREVIEW|playing      （首音；此后**没有** progress=100 / done）
+  08:28:21.960  PREVIEW|start        （第 2 次）
+  …57 s 后仍无 playing/progress/done
+  ```
+- **关键判据**：本次会话整模型加载次数 = **1**（R1/R3 生效，无重复加载），但
+  ①第 1 次试听在 `playing` 之后**未出现** `progress=100`/`done`；②第 2 次请求因 `PreviewPlayer`
+  使用**单线程 executor** 而被前一个未结束的任务阻塞。
+- **初步判断（**未定论**）**：阻塞点位于音频播放链路（`AudioTrack` 写入/焦点/HAL）而非模型加载；
+  需插桩定位（见下）。
+- **下一步（插桩方案）**：在预览路径加打点并复测——
+  `PREVIEW|track_open|sr=…|buf=…|ms=`、`PREVIEW|synth_begin/seg=…|chars=…`、`PREVIEW|synth_end|ms=`、
+  `PREVIEW|write|bytes=…|ms=`、`PREVIEW|track_release|ms=`；同时对 `AudioTrack.write` 的返回值/耗时设阈值告警。
+  同时复核 `stop()`/`releaseTrack()` 与写循环的竞态（红线 2：已有音频不得强停）。
+- **状态**：成立（现象确证）；根因待插桩
