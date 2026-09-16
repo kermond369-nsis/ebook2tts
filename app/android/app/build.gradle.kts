@@ -45,9 +45,12 @@ android {
 
     packaging {
         jniLibs {
-            // 引擎 AAR 内置三套 ABI（arm64-v8a / armeabi-v7a / x86_64），调试包不剥离符号，
-            // 避免依赖本机未安装的 NDK 工具链
+            // 引擎 AAR 内置多套 ABI，调试包不剥离符号，避免依赖本机未安装的 NDK 工具链
             keepDebugSymbols += listOf("**/*.so")
+            // ABI 收敛（P7 / RQ-512）：显式排除 32 位 armeabi-v7a。
+            // 原因：sherpa-onnx 本地 AAR（engine/libs/*.aar）与 Flutter 的 target-platform 默认值
+            // 仍会带入 v7a 的 4 个 .so；单靠 ndk.abiFilters 无法剔除（实测 APK 内残留 v7a/ 目录）。
+            excludes += "lib/armeabi-v7a/**"
         }
     }
 }
