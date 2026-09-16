@@ -155,3 +155,36 @@
 4. **P7-D（包体/R8/依赖）与产品目标同向**：既然核心目标之一是"压体积"，release 侧的 R8 收缩/资源裁剪
    不是可选项而是主线目标 ⇒ **keystore 阻塞项的价值上升**（或采纳"临时 debug keystore 签验证版"的方案先跑出数字）。
 5. **ABI 收敛（arm64-v8a + x86_64）与不预置模型**共同构成体积策略的两个手段（前者已实施）。
+
+# 附录 E：P7-D 阻塞解除与构建实录（2026-09-16）
+
+## E1 结论修正
+- **原判断（我此前说错）**："P7-D 卡在 release keystore，整批做不了"。
+- **事实**：Flutter 模板默认 `signingConfig = signingConfigs.getByName("debug")` ⇒ **release 构建本就可用**（用调试密钥签）；
+  R8 / 资源收缩 / `lintRelease` / 依赖验证**与签名无关**。签名只影响**更新连续性**（同一密钥才能签后续更新）。
+- 处置：生成自签名发布密钥并接入（存在 `key.properties` 用发布密钥，否则回退调试密钥，保证他人 clone 可构建）。
+
+## E2 发布密钥（已交付 SMB `p7/signing/`）
+| 项 | 值 |
+|---|---|
+| 别名 | `ebook2tts` |
+| 算法/有效期 | RSA 4096，自签名 `SHA384withRSA`，2026-09-16 → **2056-09-08** |
+| 证书 SHA-256 | `7D:37:9C:A3:BF:87:2B:AB:02:2F:2C:38:AB:61:F8:95:1A:6B:81:B5:86:09:83:E6:81:3B:33:5C:F5:97:F6:42` |
+| Android 是否需要 CA | **不需要**（自签名证书即满足安装与更新校验） |
+
+## E3 release 产物实测
+```
+✓ Built app-release.apk (417.3MB)
+签名核验: Signer #1 certificate DN: CN=Kermond, OU=ShuShengLocal, O=ebook2tts, C=CN
+          SHA-256: 7d379ca3bf872bab022f2c38ab61f8951a6b81b5860983e6813b335cf597f642  ← 与交付密钥一致
+包体:     debug 1.5 G  →  release 398 M（R8 + 资源收缩生效；mapping.txt 位于 app/build/outputs/mapping/release/）
+ABI:      arm64-v8a 7 + x86_64 7，**无 armeabi-v7a 残留**（ABI 收敛在 release 同样成立）
+```
+
+## E4 施工教训（写给后续 Agent，避免重复踩）
+1. **Kotlin DSL 中 `java` 会被项目的 `java` 扩展遮蔽**：在 `build.gradle.kts` 里写 `java.util.Properties()` 会报
+   `Unresolved reference 'util'`（连带 `Properties.isNotEmpty/getProperty` 等一串假错误，本次共 12 条）。
+   正解：文件顶部显式 `import java.util.Properties`，然后只用 `Properties()`。
+2. **构建日志别用 `tail -N` 截断**：首次失败时 `tail -6` 把真实报错吞掉，只留 `BUILD FAILED`，反而多花一轮定位。
+   正解：全量落盘到文件，再用 `grep -nE "What went wrong|Script compilation|^  Line"` 取诊断段。
+3. **改完 `build.gradle.kts` 必须真跑一次 release 构建**（脚本编译错误只在构建时暴露，`flutter analyze` 看不见）。
