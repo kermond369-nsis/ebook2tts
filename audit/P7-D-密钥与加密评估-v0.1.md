@@ -188,3 +188,17 @@ ABI:      arm64-v8a 7 + x86_64 7，**无 armeabi-v7a 残留**（ABI 收敛在 re
 2. **构建日志别用 `tail -N` 截断**：首次失败时 `tail -6` 把真实报错吞掉，只留 `BUILD FAILED`，反而多花一轮定位。
    正解：全量落盘到文件，再用 `grep -nE "What went wrong|Script compilation|^  Line"` 取诊断段。
 3. **改完 `build.gradle.kts` 必须真跑一次 release 构建**（脚本编译错误只在构建时暴露，`flutter analyze` 看不见）。
+
+# 附录 F：release 包装机冒烟 + 备份关闭的设备侧实证（2026-09-16）
+
+```
+卸载旧包（调试密钥签）: Success
+安装 release 包（发布密钥签, 398M）: Success（streamed install，32.3s）
+冷启: 进程 6554 存活；FATAL EXCEPTION / ANR 计数 = 0
+包信息: versionName=0.2.0-alpha.1, signatures=[f64c2596]（发布密钥）
+flags=0x0 → 不含 ALLOW_BACKUP ⇒ 备份资格已关闭
+dumpsys 中该包无 backup/dataExtraction 记录 ⇒ 系统不为该包保留备份通道
+```
+- **注意**：测试机按甲方 2026-09-16 约定视为可随意删改（已记入项目 `AGENTS.md`），
+  卸载导致模型与配置丢失**不构成损失**，不再就此类操作请示。
+- 未装模型时引擎进程懒启动（`:tts_service` 不常驻）属预期。
