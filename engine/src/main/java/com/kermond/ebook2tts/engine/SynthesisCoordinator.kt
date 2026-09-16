@@ -96,6 +96,20 @@ class SynthesisCoordinator(
     @Volatile
     private var destroyed = false
 
+    /** 仅调试用（P7/E3）：可调试包从 /data/local/tmp/p7-threads.txt 覆盖线程数；release 永不读取。交付前移除。 */
+    private fun resolvedThreads(): Int {
+        val debuggable = (context.applicationInfo.flags and
+            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (debuggable) {
+            val f = java.io.File("/data/local/tmp/p7-threads.txt")
+            if (f.exists()) {
+                val n = runCatching { f.readText().trim().toInt() }.getOrNull()
+                if (n != null && n in 1..8) { Log.i(TAG, "THREADS|override|n=$n"); return n }
+            }
+        }
+        return ConfigStore.threads()
+    }
+
     private val reloadExecutor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "tts-reload").apply { isDaemon = true }
     }
@@ -244,7 +258,7 @@ class SynthesisCoordinator(
                     return@withLock
                 }
                 sm.onInitStart()
-                val b = SherpaBackend(dir, spec, ConfigStore.threads())
+                val b = SherpaBackend(dir, spec, resolvedThreads())
                 b.load()
                 if (!b.isReady()) {
                     sm.onInitFailure(b.loadError ?: "load_failed")
