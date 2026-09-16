@@ -228,3 +228,23 @@ PREVIEW|start voice=zf_3 → PREVIEW|stopped_by_user → PREVIEW|start（新请�
 4. **历史崩溃 1 类 2 条**（`:tts_service` MMKV 未初始化）已定位，现行代码具备修复路径，列为回归验证项。
 5. **依赖漏洞（OSV）为 0**；Flutter 直接依赖均为最新。
 6. 未执行项已逐条登记（§八），不冒充实测。
+
+## 附：在线合成 vs 本地合成 —— 真机（Mi MIX 2S）对照实测（2026-09-16）
+
+**在线**（真机侧 curl，plan 密钥，`POST {plan-base}/chat/completions`，SSE，`audio.format=pcm16`，voice=白桦，
+文本「你好，这是一次在线合成延迟测试。」15 字）：
+```
+http=200  dns=0.125s  conn=0.241s  ttfb=0.934s  total=1.603s  bytes=219792
+对照 /models：http=200 ttfb=0.101s
+端点 RTT：avg 53.7ms（16.3~128.3ms，0% 丢包）
+```
+⇒ 在线整句合成 ≈ **1.6 s 完成、首字节 0.93 s**；对短句**快于实时**。
+
+**本地**（同机，`threads=7`，kokoro-int8）：24 字 **> 37 s 仍未返回**（BUG-P7-016/017）；
+模拟器 x86_64 同文本合成 4.70 s / 音频 5.14 s（RTF≈0.92）。
+
+⇒ 同一台真机上，**在线链路比本地合成快约 25~40 倍**。这条差距支持"在线优先/本地兜底"的产品取向，
+也把本地合成的优化优先级量化了（详 BUG-P7-017）。
+
+**密钥处理**：密钥值全程未进入对话/文档（仅在 shell 变量与管道内传递，落盘于 `[KEY-STAGING-FILE]`，权限 600）。
+真机 App 内的在线开关仍为关闭状态（引擎 MMKV 无 `online.*`）——如需 App 端到端在线测试，另行处理填写方式。
