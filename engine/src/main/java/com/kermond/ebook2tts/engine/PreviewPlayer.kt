@@ -97,31 +97,41 @@ class PreviewPlayer(private val context: Context) {
                     playing.set(false)
                     return@execute
                 }
+                Log.i(TAG, "PREVIEW|backend_ready|borrowed=${!owned}|sr=${backend.sampleRate}")
                 val pool = VoiceCatalog.poolForModel(modelId, backend.numSpeakers())
                 val voice = VoiceCatalog.resolve(pool, voiceId ?: ConfigStore.narratorVoice())
-                startTrack(backend.sampleRate, listener)
+                // P7 插桩（BUG-P7-016）：定位"首个请求 playing 之后迟迟不结束"的阻塞点
+                val tTask = System.currentTimeMillis()
+                val tTrack = System.currentTimeMillis()
+                val trackOk = startTrack(backend.sampleRate, listener)
+                Log.i(TAG, "PREVIEW|track_open|ok=$trackOk|ms=${System.currentTimeMillis() - tTrack}")
                 val segments = TextAnalyzer.analyze(cleaned)
                 var doneSeg = 0
                 for (seg in segments) {
                     if (!playing.get()) break
                     if (seg.text.isBlank()) continue
                     val spoken = seg.text
+                    val tSynth = System.currentTimeMillis()
                     val pcm = backend.generatePcm(spoken, voice.speakerId, SpeedMapper.actualSpeed(100 * speed.toInt().coerceAtLeast(1), 0f).let {
                         // speed here is already multiplier 0.5..2
                         speed.coerceIn(0.5f, 2.0f)
                     })
+                    Log.i(TAG, "PREVIEW|synth|chars=${spoken.length}|bytes=${pcm.size}|ms=${System.currentTimeMillis() - tSynth}")
                     if (pcm.isNotEmpty() && playing.get()) {
                         var i = 0
+                        val tWrite = System.currentTimeMillis()
                         while (i < pcm.size && playing.get()) {
                             val end = minOf(i + 4096, pcm.size)
                             track?.write(pcm, i, end - i)
                             i = end
                         }
+                        Log.i(TAG, "PREVIEW|write|bytes=$i/${pcm.size}|ms=${System.currentTimeMillis() - tWrite}|playing=${playing.get()}")
                     }
                     doneSeg++
                     listener.onProgress((doneSeg * 100) / segments.size.coerceAtLeast(1))
                 }
                 // fade out
+                Log.i(TAG, "PREVIEW|segments_done|count=$doneSeg|total_ms=${System.currentTimeMillis() - tTask}")
                 runCatching { track?.stop() }
                 // P7 / R1：仅"自建实例"才在此释放；借用协调器的常驻后端一律不释放
                 if (owned) backend.release()
