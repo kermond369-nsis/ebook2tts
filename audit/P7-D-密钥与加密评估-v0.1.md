@@ -74,3 +74,39 @@
 2. `androidx.security:security-crypto` 当前维护状态（是否已废弃/是否应改用 Keystore + AES-GCM 直接实现）——**我未确认，标为待核实，请 agy 一并核对**；
 3. 备份排除写法（`dataExtractionRules` 与 `fullBackupContent` 的字段口径）是否覆盖 MMKV 目录；
 4. 是否有被我遗漏的落地路径（例如 WebView/导出/剪贴板/通知栏回显）。
+
+---
+
+# 附录 A：agy 复核意见（2026-09-16，gemini-3.1-pro-high，headless 只读）
+
+**agy 采纳的项**
+1. 备份策略：**首选 `allowBackup="false"`**（"一剑封喉"，同时掐断 `adb backup` / 云备份 / D2D 换机迁移）；若必须保留备份，
+   排除口径须写成：≤11 `<exclude domain="file" path="mmkv"/>`；≥12 在 `<cloud-backup>` **与** `<device-transfer>` **两个节点下都要写**。
+2. **把"密钥输入框遮蔽 + 页面 `FLAG_SECURE`"从 P1 提到 P0**：理由——可同时封堵"最近任务快照"泄露（系统会把配置页缩略图存进系统目录）。
+3. **否掉我的 P0-4（用正则给日志里的 `sk-`/`tp-`/`Bearer` 打码）**：指出这正是今日事故的同源反模式（"大海捞针式的救火"，
+   服务端换前缀/换业务线即失效）。改为**防线前移**：
+   - OkHttp `HttpLoggingInterceptor.redactHeader("Authorization")`；
+   - 凭证类错误**不透传服务端字符串**，统一抛 `AuthException("认证失败，请检查密钥")`。
+4. 补充禁止项：**严禁用 `Intent`(Extras) 跨组件传递密钥**（可被 logcat/第三方嗅探）。
+
+**agy 主动补的威胁路径**：最近任务快照（Task Snapshot）、第三方输入法/剪贴板历史、OOM/崩溃转储与第三方崩溃上报（Tombstone、Crashlytics 类）可能带出内存中的明文。
+
+**我方对 agy 的纠正（附证据）**
+- agy 称 "`androidx.security:security-crypto` **未被废弃**，可放心使用" —— **此条不成立**，已核实：
+  - Android 官方 Cryptography 文档：Jetpack Security Crypto 的**全部 API 已于 1.1.0 起废弃、不再有新版本**；
+  - 该类库在 **2025-04 的 `1.1.0-alpha07` 被标注废弃**（社区 fork `ed-george/encrypted-shared-preferences` 的说明与
+    Google 源码 javadoc `@deprecated Use SharedPreferences instead` 均可佐证）；
+  - 社区现行迁移方向 = **DataStore + Google Tink**（或 Keystore 直接 + AES-GCM）。
+- ⇒ **结论：不引入已废弃库**；采用"平台 Keystore + 成熟加密库（Tink）"路线（见附录 B）。
+
+# 附录 B：整改定稿 v0.2（据复核修订）
+
+| 级别 | 事项 | 说明 |
+|---|---|---|
+| **P0-1** | 密钥隔离存储 | **不引入 security-crypto**；用 **Google Tink（`AndroidKeysetManager` + `StreamingAead`/`Aead`）** 加密后落盘（容器可用 MMKV/独立文件），或平台 Keystore + AES-GCM。Keystore 保管密钥集，磁盘只见密文 |
+| **P0-2** | 关闭备份 | `allowBackup="false"`；若保留备份则按附录 A 的双节点排除口径，并**同时排除加密后的密文文件** |
+| **P0-3** | 凭证不外泄（防线前移） | `redactHeader("Authorization")`；凭证错误统一抛 `AuthException`，**不透传服务端原文**；严禁 `Intent` 传密钥 |
+| **P0-4** | 界面防泄漏（由 P1 提升） | 密钥输入框 `textPassword`；设置页 `FLAG_SECURE`（禁截屏/录屏/快照） |
+| **P1** | 迁移与清理 | 首次启动把 MMKV 中的明文 `online.apiKey` 迁入加密存储并**从 MMKV 删除**；提供"清除密钥"入口 |
+| **P1** | 仓库与 CI | `.gitignore` 覆盖 `local.properties`/`secrets.properties`/`*.jks`/`key.properties`/`.env*`；开 GitHub secret scanning + push protection |
+| **不做** | —— | debug-only 密钥后门、`BuildConfig` 内置密钥、证书固定、自研加密算法 |

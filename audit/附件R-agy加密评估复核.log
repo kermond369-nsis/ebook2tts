@@ -1,0 +1,69 @@
+你好！作为 Android 安全与架构评审，我已经仔细阅读了这份 P7-D 评估稿。该文档对现状的梳理非常务实，对 BYO-Key（用户自带密钥）模式的认知也很准确。
+
+以下是针对你提出的 6 个问题的逐条评审意见：
+
+### 1. 密钥存储整改：MMKV cryptKey vs EncryptedSharedPreferences
+*   **结论**：强烈建议采用**方案 B**（将 `online.apiKey` 剥离至 `EncryptedSharedPreferences`，原有普通配置保留在 MMKV）。
+*   **依据**：
+    *   **架构与权限分离**：MMKV 适合高频、大吞吐的非敏感配置（如 UI 状态、阅读进度）；API Key 是低频读取、高敏感的凭证。将其物理隔离更符合安全架构中的“最小权限与隔离”原则。
+    *   **实现成本与稳定性**：MMKV 的 `cryptKey` 方案需要开发者自行通过 Android Keystore 生成 32B 密钥、处理 Key 的失效/指纹变更逻辑，并传递给 MMKV，这属于“半自研密钥管理”，极易在系统升级或换机迁移时产生边界 Bug。而 `EncryptedSharedPreferences` 开箱即用地封装了 Keystore + AES-GCM，稳定且心智负担极低。
+    *   **SDK 基础**：本项目 minSdk 为 27（Android 8.1），已完美支持 Keystore 硬件级加密，没有任何低版本兼容包袱。
+*   **实现要点与迁移方案**：
+    1.  **依赖与初始化**：引入 `androidx.security:security-crypto`，使用 `MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()` 创建主密钥。
+    2.  **平滑迁移旧明文**：在启动时或单例初始化时进行拦截判断：
+        ```kotlin
+        // 伪代码逻辑
+        if (mmkv.containsKey("online.apiKey")) {
+            val oldPlaintextKey = mmkv.decodeString("online.apiKey")
+            if (!oldPlaintextKey.isNullOrEmpty()) {
+                encryptedPrefs.edit().putString("online.apiKey", oldPlaintextKey).apply()
+            }
+            // 务必彻底从 MMKV 中擦除明文痕迹
+            mmkv.removeValueForKey("online.apiKey") 
+        }
+        ```
+
+### 2. `androidx.security:security-crypto` 维护状态
+*   **结论**：**未被官方废弃**，完全可以放心使用。
+*   **依据**：目前该库依然是 Android 官方处理 `SharedPreferences` 加密的唯一推荐标准库（最新稳定版为 1.0.0，也有 1.1.0-alpha 迭代）。虽然 Google 官方在力推 `DataStore` 替代普通的 `SharedPreferences`，但 `security-crypto` 底层是对 Google Tink 和 Android Keystore 的标准封装，加密内核极为可靠。
+*   **替代方案**：除非本项目整体架构强制要求必须将所有存储迁移至 Kotlin DataStore（若是如此，则需使用 Preferences DataStore + 配合 Android Keystore Cipher 自行编写 Serializer），否则在当前维持 MMKV 的前提下，引入 `security-crypto` 剥离单个敏感键值是最优解。
+
+### 3. 备份边界：allowBackup 策略
+*   **结论**：最稳妥的做法是直接设置 **`android:allowBackup="false"`**。若产品需求强制要求保留备份，必须采用精确的目录排除。
+*   **依据**：
+    *   `allowBackup="false"` 是防泄漏的“一剑封喉”之举，直接从系统层斩断了 `adb backup`、云端备份和 D2D（设备到设备，如换机助手）导致明文或密文外流的所有可能。
+    *   保留备份但写排除规则（XML）非常脆弱。如果后续 MMKV 更改了底层存储路径，或引入了新的缓存目录而忘记更新 XML，极易引发“破窗效应”。
+*   **实现要点（若必须保留备份）**：
+    字段口径必须这样写才能确实覆盖：
+    *   **≤ 11 (`fullBackupContent`)**: `<exclude domain="file" path="mmkv"/>` 
+    *   **≥ 12 (`dataExtractionRules`)**: 必须在 `<cloud-backup>` 和 `<device-transfer>` 节点下均配置 `<exclude domain="file" path="mmkv"/>`。
+    *   *(注：若采纳问题1的建议，还需额外排除 `domain="sharedpref" path="secret_shared_prefs.xml"`)*。
+
+### 4. 威胁模型评估缺失补全
+*   **结论**：评估稿逻辑务实（承认防不住 Root），但在“本地非 Root 隐蔽泄露路径”上存在缺失。
+*   **缺失的落地路径（建议补充至文档）**：
+    1.  **系统多任务快照 (Task Snapshot)**：当用户在配置页填完 Key 并将 App 退至后台时，系统截取的缩略图会明文保存在系统目录。
+    2.  **第三方输入法与剪贴板**：用户复制粘贴或手动输入 Key 时，易被第三方输入法记录，或留存在系统剪贴板历史（Android 12+ 虽有剪贴板读取提示，但防不住用户主动复制后的留存）。
+    3.  **内存 Dump / APM 次生泄露**：App 若发生 OOM 或崩溃，明文 String 可能被抓取进 Tombstone 或由 Crashlytics/Bugly 上传至云端。
+
+### 5. 明确排除项与应补充项
+*   **结论**：**完全同意**评估稿中明确排除的三项。
+*   **依据**：
+    *   *不写 BuildConfig / 不做证书固定*：非常清醒。对于公开 API 且 Key 由用户提供的情况，这两项纯属负收益的过度设计。
+    *   *不加 debug-only 读文件后门*：代码路径分叉是安全漏洞的温床，极易因混淆配置错误被带入 Release 包。
+*   **建议补充“应该做/坚决不做”的项**：
+    *   **坚决不在组件间传递明文**：严禁通过 `Intent` (Extras) 将 API Key 跨 Activity/Service 传递，因为 Intent 数据极易被 Logcat 抓取或被第三方应用嗅探。
+    *   **使用底层库硬拦截替换正则匹配**：严禁将原始的带有 Token 的 HTTP Header 抛到上层业务域。
+
+### 6. 优先级排错与过度设计识别
+*   **结论**：总体规划合理，但有两处需要调整。
+*   **优先级提升（P1 → P0）**：
+    *   **原 P1-8（UI 侧：密钥输入框遮蔽显示）**。
+    *   **理由**：这不仅防肩窥，更能直接封堵上述提到的“多任务快照 (Task Snapshot)”泄露。建议将其提升为 P0，实现时对输入框设置 `inputType="textPassword"`，并在该设置页面的 Activity 中添加 `window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)`，从系统底层禁止截屏和录屏。
+*   **过度设计/高风险项修正（原 P0-4）**：
+    *   **原方案**：“对错误串做一次敏感模式过滤（sk-/tp-/Bearer 一律打码）”。
+    *   **理由**：**这是典型的反模式，也是今日你们发生事故的根源。**用正则或前缀去大段文本里“大海捞针”极易漏网（如服务端变更前缀、添加新业务线）。
+    *   **替代方案**：**防御阵地前移**。绝不能让包含凭证的原始字符串流转到需要打印日志的业务层。应在网络库（如 OkHttp）的 Interceptor 层面做阻断：
+        1. 使用 `HttpLoggingInterceptor` 时，显式调用 `redactHeader("Authorization")`。
+        2. 如果服务端在 Body 里回显了凭证，直接拦截重写 HTTP Exception，向上层抛出统一的 `AuthException("认证失败，请检查密钥")`，而不是透传 Server 抛回来的 String。
+EXIT=0
