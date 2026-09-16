@@ -25,18 +25,18 @@ android {
 
     buildTypes {
         debug {
-            // 规格 §1：调试包仅供 MuMu(x86_64) 验证，只留 x86_64 以控制体积/安装时间
+            // 规格 §1：调试包用于 MuMu(x86_64) 与真机(arm64) 验证 ⇒ 保留 x86_64 + arm64-v8a
             // （注意：必须 clear，否则 Flutter 注入的 ABI 列表会残留）
             ndk {
                 abiFilters.clear()
-                abiFilters.add("x86_64")
+                abiFilters.addAll(listOf("x86_64", "arm64-v8a"))
             }
         }
         release {
-            // 正式包 ABI（DQ-2 / 规格 §1）：arm64-v8a + armeabi-v7a
+            // 正式包 ABI（P7 / RQ-512 / DQ-2 修订）：仅 arm64-v8a（放弃 32 位 armeabi-v7a）
             ndk {
                 abiFilters.clear()
-                abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
+                abiFilters.add("arm64-v8a")
             }
             // 正式签名由发布线配置；当前阶段沿用调试签名，保证 `flutter run --release` 可用
             signingConfig = signingConfigs.getByName("debug")
