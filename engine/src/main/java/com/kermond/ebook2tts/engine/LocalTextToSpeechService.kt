@@ -52,12 +52,27 @@ class LocalTextToSpeechService : TextToSpeechService() {
         ConfigStore.notifyStatus(this, "CREATED")
     }
 
+    /**
+     * P7（甲方 2026-09-17）：系统内存压力升高时**按需释放**常驻后端。
+     * 国产 ROM 对常驻内存更敏感（留存越多越易被杀），故在 RUNNING_LOW 及以上、且确无在用时就释放。
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            coordinator.releaseIfIdle("trim_$level")
+        }
+    }
+
     override fun onDestroy() {
         coordinator.requestStop()
         reloadReceiver?.let { runCatching { unregisterReceiver(it) } }
         try {
             super.onDestroy()
         } finally {
+            // P7 追加（甲方 2026-09-17）：TTS 服务销毁时若预览未在用，则释放常驻后端，
+            // 避免在国产 ROM 上长期占住内存被优先回收（需要时会重新预热，代价 ~12 s）。
+            runCatching { coordinator.releaseIfIdle("service_destroy") }
+            // 协调器本身仍为进程级单例（避免重复预热）；仅释放其持有的 native 后端。
             // ── P7 / R1 修正（BUG-P7-016 副产物）：协调器与常驻后端改为**进程生命周期** ──
             // 不再随 TTS 服务销毁而 shutdown/detach。原因：系统解绑销毁 TTS 服务时，预览通道可能仍在
             // 使用该后端；此前 detach 会让下一次预览 getOrCreate **再造一个协调器并再次预热**

@@ -304,6 +304,30 @@ class SynthesisCoordinator(
         }
     }
 
+    /**
+     * 空闲/内存压力下的**按需释放**（P7 追加，甲方 2026-09-17 要求）。
+     *
+     * 动机：常驻后端在国产 ROM 上"留存越多越容易被杀"。此方法只在**确无在用**时释放：
+     * ① 预览未在播放；② 当前状态为 READY（非 BUSY）；两条都不满足则跳过并留日志。
+     * 释放后再次需要时会走既有预热/加载路径（真机冷加载 ~12 s，属可接受代价）。
+     */
+    fun releaseIfIdle(reason: String): Boolean {
+        if (CoordinatorHolder.previewActive) {
+            Log.i(TAG, "RELEASE|skipped|reason=preview_active|$reason"); return false
+        }
+        return guard.withLock {
+            val st = runCatching { ConfigStore.statusState() }.getOrNull()
+            if (st == "BUSY" || st == "SYNTHESIZING") {
+                Log.i(TAG, "RELEASE|skipped|reason=busy($st)|$reason"); return@withLock false
+            }
+            if (backend == null) { Log.i(TAG, "RELEASE|skipped|reason=already_released|$reason"); return@withLock false }
+            oldRelease()
+            ConfigStore.setStatusState("IDLE_RELEASED")
+            Log.i(TAG, "RELEASE|done|reason=$reason")
+            true
+        }
+    }
+
     private fun oldRelease() {
         backend?.release()
         backend = null

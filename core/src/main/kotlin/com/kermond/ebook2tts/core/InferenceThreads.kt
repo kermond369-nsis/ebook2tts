@@ -27,9 +27,16 @@ object InferenceThreads {
      */
     fun resolve(cores: Int, stored: Int = 0, perfCores: Int = 0): Int {
         if (stored > 0) return stored.coerceIn(1, MAX)
-        val ceiling = if (perfCores > 0) maxOf(MIN, minOf(perfCores, MAX)) else MAX
-        return (cores - 1).coerceIn(MIN, ceiling)
+        // 甲方 2026-09-17 口径修正：**产品跑在真机上，不跑模拟器**；现代真机 SoC 几乎全为异构核
+        // （big.LITTLE/三簇）。真机实测（Mi MIX 2S / SDM845，4×A75+4×A55）：
+        //   线程 7 → 108.0 s、4 → 83.6 s、**2 → 69.0 s**（线程越多越慢，差 56%）
+        // ⇒ 异构核**自动取 2**；仅当确为同构核（罕见：桌面级/老设备）才沿用 cores-1 上限。
+        if (perfCores in 1 until cores) return AUTO_HETERO.coerceIn(MIN, MAX)
+        return (cores - 1).coerceIn(MIN, MAX)
     }
+
+    /** 异构核（存在性能核/能效核差异）时的自动线程数：实测最优档 */
+    const val AUTO_HETERO = 2
 
     /**
      * 由各核最大频率（kHz）分簇求**性能核数**（纯函数，便于单测；判定在 Android 侧读 `cpufreq` 后传入）。
