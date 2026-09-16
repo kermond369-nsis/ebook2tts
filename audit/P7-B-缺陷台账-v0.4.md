@@ -646,3 +646,30 @@ all dependencies are up-to-date.
 - 标记 `*` 者均为**传递依赖**（由 Flutter SDK 侧版本约束锁定），**直接依赖无一条落后**；
 - 结论：**不做升级**。理由：①无直接依赖陈旧；②传递包仅差补丁版本，升级需强解约束（`pub upgrade --major-versions`）反而引入与 SDK 约束冲突的风险；
 - 处置：**关闭该条**，并在《实现报告》IM 条目中登记"依赖策略＝跟随 SDK 约束，不做越权强升"。
+
+---
+
+### P7-005 ｜ 死代码 —— detekt 扫描**未报告任何未用项**，已知一处已在 R7 处理（2026-09-17 00:39）
+
+**证据**：detekt 1.23.8 全量扫描（core + engine，`--build-upon-default-config`），
+按 checkstyle XML 的 `source` 字段解析 **246 条**：
+
+| 模块 | 总数 | 规则分布（前列） |
+|---|---|---|
+| `:core` | 93 | MagicNumber 70 / ReturnCount 16 / ComplexCondition 3 / LongParameterList 1 / **FunctionOnlyReturningConstant 1** / NestedBlockDepth 1 / LoopWithTooManyJumpStatements 1 |
+| `:engine` | 153 | MagicNumber 70 / TooGenericExceptionCaught 21 / ReturnCount 18 / LongMethod 7 / CyclomaticComplexMethod 6 / LoopWithTooManyJumpStatements 6 / NestedBlockDepth 5 / TooManyFunctions 5 / MaxLineLength 5 / ThrowsCount 4 / LongParameterList 2 / LargeClass 1 |
+
+- **`Unused*`（未用私有成员/未用 Import/未用参数）命中 = 0 条**；
+- 本台账原先记录的"死代码"已知实例（自造常量镜像 `TextToSpeechErrors`）**已在 R7/BUG-P7-001 处理中删除** ⇒ 该条**无新增待办**；
+- **诚实标注**：detekt 默认配置是否启用 `UnusedPrivateMember` 等规则**未核实**（本轮只解析了实际报告结果），
+  因此"0 条"**不等于**"证明无死代码"；后续将以**引用检索**方式单独确认（列入下一批）。
+
+### P7-006 ｜ 静态检查 246 项 —— **采用 baseline + 递减**（不一次性清理，不制造新债）
+
+**决策（依"不制造新债、不在本批做大规模重构"原则）**：
+1. **建立 baseline**：将本轮 246 条报告存入仓库（`audit/detekt-baseline-{core,engine}.xml`），作为**基线快照**；
+2. **门禁口径**：新代码**不得新增**违例；每批次允许**递减**（不做一次性大清扫，避免与主线修复混合、难以复核）；
+3. **优先修（下一批）**：`TooGenericExceptionCaught`（engine 21 条）——直接关系错误可观测性，
+   与本批次 BUG-P7-016/017 的排查体验一致（捕获过宽会吞掉真实错误）；
+4. **不修（噪音）**：`MagicNumber`（140 条）多为音素/采样率/字节常量，收敛收益低、改动面大；
+5. **单独确认**：`FunctionOnlyReturningConstant`（core 1 条）疑似死代码，下一批用引用检索确认后处理。
