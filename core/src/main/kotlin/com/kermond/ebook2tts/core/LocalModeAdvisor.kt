@@ -24,8 +24,16 @@ object LocalModeAdvisor {
     /** 天玑（Dimensity）达阈值的最小代际编号（甲方口径：9300 及以上） */
     const val DIMENSITY_MIN_GEN = 9300
 
-    /** 玄戒（XRING）族模式：命中即**不告警**（RQ-515 例外）。族名匹配，不依赖具体型号串。 */
-    private val XRING_FAMILY = Regex("(?i)xring|玄戒")
+    /**
+     * 玄戒（XRING）族模式：命中即**不告警**（RQ-515 例外）。
+     * 甲方 2026-09-17 明确：名字串可以用已知的 `O1`，查不到的按族名容忍。
+     * ⇒ 采用"族名 + 已知型号串"双保险：族名（xring/玄戒）覆盖未发布的后续型号，
+     *    已知串（O1）保证即使平台只回型号号也能命中。
+     */
+    private val XRING_FAMILY = Regex("(?i)xring|玄戒|\\bO[13]\\b")
+
+    /** 已知玄戒型号串（甲方口径：至少写 O1；O3 待实测确认后回填） */
+    val XRING_KNOWN_MODELS = listOf("O1", "XRING O1")
 
     /**
      * 骁龙（Snapdragon）**达到阈值**的模式：8 Gen 1+ 家族，或以 SM8450 及之后的平台编号。
