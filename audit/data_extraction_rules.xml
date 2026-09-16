@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  P7 / RQ-511（备份边界）：**全量关闭备份**。
+  产品取向由用户裁定（2026-09-16）：App 不预置模型、开局由用户选择在线/本地模式，
+  换机或重装后按需重新下载模型与重填配置是可接受的代价；任何形式的自动备份
+  （云备份 / adb backup / 设备到设备迁移）均不保留 ⇒ 凭证与配置永不离开设备。
+
+  allowBackup="false" 对 targetSdk ≥ 31 已同时关闭云备份与 D2D 迁移；
+  本文件作为显式声明存在（可审计），并保持与 allowBackup 一致：全排除。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+    </device-transfer>
+</data-extraction-rules>
