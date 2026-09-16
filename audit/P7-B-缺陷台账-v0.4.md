@@ -673,3 +673,21 @@ all dependencies are up-to-date.
    与本批次 BUG-P7-016/017 的排查体验一致（捕获过宽会吞掉真实错误）；
 4. **不修（噪音）**：`MagicNumber`（140 条）多为音素/采样率/字节常量，收敛收益低、改动面大；
 5. **单独确认**：`FunctionOnlyReturningConstant`（core 1 条）疑似死代码，下一批用引用检索确认后处理。
+
+---
+
+### P7-003 ｜ 通知权限**已实现修复**（BUG-P7-003，RQ-510 / **IM-544**）2026-09-17
+
+**改动**：`app/.../MainActivity.kt` 新增 `onCreate` —— Android 13+（API 33）且未授权时**运行时申请**
+`POST_NOTIFICATIONS`（平台 API，**未引入任何新依赖**；拒绝授权不影响功能，仅少了通知）。
+**验证**：`flutter build apk --debug` 编译通过；`:core:test` + `:engine:testDebugUnitTest` 全绿。
+**待真机复验**：装机后确认首次启动弹授权、授权后下载/合成通知可见（列出为下一批首项）。
+
+### P7-009 ｜ 空间预检 API —— **结论修正：误报，无需处理**（2026-09-17）
+
+**原判定**：空间预检使用了需替换的 API。
+**实测**：全仓检索仅一处 —— `ModelDownloader.availableBytes() = context.filesDir.usableSpace`，
+即 `java.io.File.getUsableSpace()`：**未废弃**（`@since API 9`，当前仍在官方 API 列表内），
+且返回值即为应用可写文件系统的可用字节数，语义与用途一致。
+**处置**：**关闭该条**（无需替换）。若将来需要精确到"配额/可分配"语义，再评估 `StorageManager.getAllocatableBytes()`
+（`API 26+`）——**当前无需求**，不做无谓改动。
