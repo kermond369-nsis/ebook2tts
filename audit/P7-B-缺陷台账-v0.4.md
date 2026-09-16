@@ -430,3 +430,21 @@
 - **下一步（全部设备无关）**：① 验证 onnxruntime intra-op 线程为何未参与（sherpa 会话参数 / 算子级串行）；
   ② 对比 `threads=7/4/2` 的合成耗时，确认是否存在"线程多反而更慢"的争抢；③ 评估**试听路径改用更小模型**
   或**合成结果缓存**（同一文本+音色复用）；④ 采样时修正 thermal_zone 单位混用（当前取 max 会取到非温度区）。
+
+#### BUG-P7-017 追加：模拟器（修复版）跑通的对照数据 —— 量化"慢"而非"卡"
+
+模拟器 MuMu x86_64 / Android 15（1080x1920），修复版 `1d0540f` 同文本同音色（24 字）：
+```
+PREVIEW|backend_ready|borrowed=true|sr=24000   ← R1 共享后端在模拟器同样生效
+PREVIEW|playing
+PREVIEW|track_open|ok=true|ms=16
+PREVIEW|synth|chars=24|bytes=246562|ms=4703    ← 合成 4.70 s
+PREVIEW|write|bytes=246562/246562|ms=5052      ← 写入 5.05 s（=音频时长，正常边播边写）
+PREVIEW|progress=100 → PREVIEW|segments_done|count=1|total_ms=9774 → PREVIEW|done   ← **全程无卡死**
+```
+- 音频时长 = 246562 B ÷ 2 B/样本 ÷ 24000 Hz ≈ **5.14 s** ⇒ 本机 RTF ≈ **0.92**（近乎 1:1）。
+- 即：**在桌面级 x86_64 CPU 上，本模型合成也几乎不快于实时**；真机 SDM845 慢 5 倍以上 ⇒ 37 s+/句。
+- ⇒ 真机"卡住"＝**慢到看起来像卡住**（BUG-P7-016 结论一致），且与 ROM 无关。
+- **排查记录**：`numThreads` 已正确下发（`SherpaBackend` 中 `OfflineTtsModelConfig(numThreads = …)`，kokoro/vits 两个分支均有）⇒ 单线程行为源自 sherpa/ORT 的 Kokoro 合成路径本身，而非本仓配置写错。
+- **待澄清（诚实记录）**：P7-A 基线报告曾记"模拟器本地试听 TTFT 1.52–1.64 s"，与今日 9.77 s 总耗时/4.70 s 合成明显不一致
+  ⇒ 需复核当时口径（疑似测的是"首块音频"而非整句合成完成，或文本/音色不同）。**在澄清前，不引用该数字做结论。**
