@@ -108,9 +108,46 @@
 
 ---
 
-## 六、下一步（真机）
+## 七、MMKV 2.4.2 升级与 ABI 收敛 —— 真机验证（2026-09-16）
 
-1. 装新包（MMKV 2.4.2 + 双 ABI debug）→ 校验配置**跨版本迁移**（1.3.9 写入的 `ebook2tts_cfg` 能否被 2.4.2 读取）；
+### 7.1 配置跨版本迁移：**通过**
+
+覆盖安装（1.3.9 写入 → 2.4.2 读取）后：
+
+| 证据 | 结果 |
+|---|---|
+| MMKV 日志 | `loading [ebook2tts_cfg] … meta info version:4` → `loaded [ebook2tts_cfg] with 7 key-values`；`Enable checkProcessMode()`（多进程模式生效） |
+| 配置内容比对（升级前后 `strings` 全量 diff） | ✅ **完全一致**（含 `model.id=kokoro-int8`、`status.state=READY` 等） |
+| 模型有效性 | 升级后仍识别已装模型（未回落"未安装模型"态） |
+| 崩溃/链接错误 | 0（`FATAL EXCEPTION` / `UnsatisfiedLinkError` 均为 0） |
+
+### 7.2 16 KB 页对齐：**通过（成品 APK 实测）**
+
+| 库（成品 APK 内） | arm64-v8a | x86_64 |
+|---|---|---|
+| `libmmkv.so`（2.4.2） | **0x4000 ✓** | **0x4000 ✓** |
+| `libsherpa-onnx-jni.so` | 0x4000 ✓ | 0x4000 ✓ |
+| `libflutter.so` | 0x10000 ✓ | 0x10000 ✓ |
+
+⇒ BUG-P7-004 在**成品产物层面**关闭（arm64 是 16 KB 设备的主战场）。
+
+### 7.3 ABI 收敛：**首轮不彻底 → 已修**
+
+- **首轮现象**：仅改 `ndk.abiFilters` 后，APK 内**仍残留 `armeabi-v7a/`**（4 个 .so：`lib{sherpa-onnx-*,onnxruntime}.so`，**不含** `libmmkv.so`/`libflutter.so`）——来源为 `engine/libs/sherpa-onnx-1.13.8.aar`（本地 AAR）与 Flutter 的 `target-platform` 默认值；
+  ⚠️ 该残留若留在正式包，会形成"32 位可安装但 `libmmkv` 缺失"的**半残状态**，比完全不含 v7a 更危险。
+- **处置**：`app/android/app/build.gradle.kts` 的 `packaging.jniLibs.excludes += "lib/armeabi-v7a/**"`（提交 `38448a9`）；
+- **验证**：重建后 APK 仅含 **arm64-v8a（7 个 .so）+ x86_64（6 个 .so）**，`lib/armeabi-v7a` 目录**消失**；
+- 真机安装该包后：配置保持、启动正常、无异常。
+
+### 7.4 操作留痕（如实登记）
+
+- 期间因反复解压 1.5 GB debug APK 导致 `/tmp`（tmpfs 3.8 GB）**写满**，一次解压中断 ⇒ 已清理残留，并改用 `unzip -l`（免解压列清单）+ 仅抽取目标 `.so` 核验，后续不再全量解压大包；
+- 设备侧改动：动画三档置 0、`stayon=true`、默认 TTS 引擎设为本应用（**待测试结束后按甲方意愿还原**）。
+
+
+## 八、下一步（真机）
+
+1. 装新包（MMKV 2.4.2 + 双 ABI debug）→ 校验配置**跨版本迁移**（1.3.9 写入的 `ebook2tts_cfg` 能否被 2.4.2 读取）；✅ **已完成（见 §7.1）**
 2. 复现并修 BUG-P7-011/014（预热 + 重载收敛）后，用本机做**前后 A/B**（同文本、同温度区间、各 10 次取中位）；
 3. 保底档补测 **VITS zh-ll**（NFR 保底档推荐模型）在本机的 TTFT/RTF/内存；
 4. 功耗按 NFR §5.1 标准条件（灭屏、飞行模式、耳机 50% 音量、1h 连续朗读）——需约 1 小时独占设备。
