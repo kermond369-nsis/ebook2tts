@@ -20,6 +20,8 @@ class MainActivity : FlutterActivity() {
         /** 本 App 自身的 TTS 引擎包名：诊断页「对照朗读」显式绑定它（走 :tts_service 进程） */
         const val ENGINE_PACKAGE = "com.kermond.ebook2tts"
         const val DEFAULT_SAMPLE = "夜深了，台灯把书桌照成一小块温暖的岛。"
+        /** 通知权限请求码（P7 / IM-544） */
+        const val REQ_NOTIFICATIONS = 1001
     }
 
     /** 诊断用：显式绑定本引擎的系统 TTS 客户端（仅用于对照朗读，不写配置、不改旁白） */
@@ -76,6 +78,26 @@ class MainActivity : FlutterActivity() {
             },
             ENGINE_PACKAGE,
         )
+    }
+
+    /**
+     * P7 / RQ-510 / IM-544：**运行时申请通知权限**（Android 13+）。
+     *
+     * 背景（真机实测，BUG-P7-003）：引擎声明了 `POST_NOTIFICATIONS` 却**从不申请**，
+     * 真机上 `granted=false` ⇒ 下载/合成的前台服务照跑但**一条通知都不显示**，
+     * 用户看不到进度与失败原因。
+     *
+     * 实现约束：不引入新依赖（用平台 API）；仅 Android 13+ 需要；拒绝授权也不影响功能（只少了通知）。
+     */
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            val granted = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFICATIONS)
+            }
+        }
     }
 
     override fun onDestroy() {

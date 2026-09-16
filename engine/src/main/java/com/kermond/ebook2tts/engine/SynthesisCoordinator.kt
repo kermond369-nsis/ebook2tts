@@ -55,7 +55,9 @@ class SynthesisCoordinator(
         private const val TAG = "SynthCoord"
         private const val MAX_AUDIO_BYTES = 8192
         private const val QUEUE_CAPACITY = 16
-        private const val READY_WAIT_MS = 1500L
+        // P7 / R5（BUG-P7-011）：真机（SDM845）实测冷加载 12.09 s ⇒ 原 1500 ms 预算必然超时被拒。
+        // 常态由 initAsync() 预热覆盖，本预算仅作兜底（首请求排队至此，超时才回 error）。
+        private const val READY_WAIT_MS = 15_000L
         private const val SHUTDOWN_WAIT_MS = 3000L
         private const val PUSH_JOIN_MS = 60_000L
 
@@ -94,6 +96,20 @@ class SynthesisCoordinator(
     @Volatile
     private var destroyed = false
 
+    /** 仅调试用（P7/E3）：可调试包从 /data/local/tmp/p7-threads.txt 覆盖线程数；release 永不读取。交付前移除。 */
+    private fun resolvedThreads(): Int {
+        val debuggable = (context.applicationInfo.flags and
+            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (debuggable) {
+            val f = java.io.File("/data/local/tmp/p7-threads.txt")
+            if (f.exists()) {
+                val n = runCatching { f.readText().trim().toInt() }.getOrNull()
+                if (n != null && n in 1..8) { Log.i(TAG, "THREADS|override|n=$n"); return n }
+            }
+        }
+        return ConfigStore.threads()
+    }
+
     private val reloadExecutor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "tts-reload").apply { isDaemon = true }
     }
@@ -103,6 +119,17 @@ class SynthesisCoordinator(
 
     @Volatile
     private var backend: SherpaBackend? = null
+
+    /**
+     * 当前已加载后端的"硬配置指纹"（P7 / R6b，BUG-P7-014 核心根因）。
+     *
+     * 仅 modelId 与线程数变化才需要真正 release+load（真机 12 s 代价）；
+     * 旁白音色 / 角色模式变化只需重建内存中的 [voicePool]/[roleAssigner]（零 native 代价）。
+     */
+    private var loadedModelId: String? = null
+    private var loadedThreads: Int = 0
+    private var loadedNarrator: String? = null
+    private var loadedRoleMode: String? = null
 
     @Volatile
     private var voicePool = VoiceCatalog.kokoroVoices()
@@ -123,6 +150,9 @@ class SynthesisCoordinator(
     /** 记录停止意图时刻；是否生效由各请求按启动时间自行判定（见 STOP_GRACE_MS） */
     fun requestStop() {
         stopAtMs = android.os.SystemClock.uptimeMillis()
+        // P7 / R4（BUG-P7-013）：中止必须**唤醒**正在 awaitBackend 等待就绪的合成线程，
+        // 否则该线程只能等预算超时（原 1500 ms，后按 R5 提至 15 s）才感知中止 ⇒ 取消不即时。
+        signalReady()
     }
 
     fun resetRoles() = roleAssigner.reset()
@@ -179,6 +209,41 @@ class SynthesisCoordinator(
     private fun reloadInternal() {
         try {
             guard.withLock {
+                // ── P7 / R6b（BUG-P7-014 的核心根因）：配置未实质变化则**不做** release+load ──
+                // 原实现无条件 oldRelease()+load() ⇒ 任何 bridge_* 广播（哪怕值没变）都要付
+                // 真机 12 s 的整模型重载代价。现按"硬指纹 / 软指纹"分级：
+                //   硬指纹（modelId + 线程数）变化 ⇒ 必须重载；
+                //   仅软指纹（旁白音色 / 角色模式）变化 ⇒ 只重建内存角色/音色池（零 native 代价）；
+                //   两者都没变 ⇒ 直接短路。
+                val curModelId0 = ConfigStore.modelId()
+                val curThreads0 = ConfigStore.threads()
+                val curNarrator0 = ConfigStore.narratorVoice()
+                val curRoleMode0 = ConfigStore.roleMode()
+                val curBackend = backend
+                if (curBackend != null && curBackend.isReady() &&
+                    loadedModelId == curModelId0 && loadedThreads == curThreads0
+                ) {
+                    val softChanged = loadedNarrator != curNarrator0 || loadedRoleMode != curRoleMode0
+                    if (softChanged) {
+                        voicePool = VoiceCatalog.poolForModel(curModelId0, curBackend.numSpeakers())
+                        roleAssigner = RoleAssigner(
+                            pool = voicePool,
+                            mode = if (curRoleMode0 == "respectReader") {
+                                RoleMode.RESPECT_READER
+                            } else {
+                                RoleMode.SMART_MULTI
+                            },
+                            narrator = VoiceCatalog.resolve(voicePool, curNarrator0),
+                        )
+                        loadedNarrator = curNarrator0
+                        loadedRoleMode = curRoleMode0
+                        Log.i(TAG, "RELOAD|soft|reason=role_cfg|model=$curModelId0|narrator=$curNarrator0")
+                    } else {
+                        Log.i(TAG, "RELOAD|skipped|reason=unchanged|model=$curModelId0|threads=$curThreads0")
+                    }
+                    ConfigStore.setStatusState("READY")
+                    return@withLock
+                }
                 oldRelease()
                 val modelId = ConfigStore.modelId()
                 val spec = ModelCatalog.byId(modelId)
@@ -193,7 +258,7 @@ class SynthesisCoordinator(
                     return@withLock
                 }
                 sm.onInitStart()
-                val b = SherpaBackend(dir, spec, ConfigStore.threads())
+                val b = SherpaBackend(dir, spec, resolvedThreads())
                 b.load()
                 if (!b.isReady()) {
                     sm.onInitFailure(b.loadError ?: "load_failed")
@@ -203,6 +268,11 @@ class SynthesisCoordinator(
                 }
                 backend = b
                 voicePool = VoiceCatalog.poolForModel(spec.id, b.numSpeakers())
+                // P7 / R6b：加载成功 ⇒ 记录指纹（供后续短路判定）
+                loadedModelId = modelId
+                loadedThreads = ConfigStore.threads()
+                loadedNarrator = ConfigStore.narratorVoice()
+                loadedRoleMode = ConfigStore.roleMode()
                 roleAssigner = RoleAssigner(
                     pool = voicePool,
                     mode = if (ConfigStore.roleMode() == "respectReader") {
@@ -237,6 +307,11 @@ class SynthesisCoordinator(
     private fun oldRelease() {
         backend?.release()
         backend = null
+        // P7 / R6b：释放后指纹失效，避免误判为"已加载"
+        loadedModelId = null
+        loadedThreads = 0
+        loadedNarrator = null
+        loadedRoleMode = null
     }
 
     /**
@@ -318,7 +393,7 @@ class SynthesisCoordinator(
         // 红线 4：推理只允许在 :tts_service 进程（主进程零推理）
         if (!isEngineProcess) {
             Log.e(TAG, "ABORT|INFERENCE_OUTSIDE_ENGINE_PROCESS|req=$reqId")
-            callback.error(TextToSpeechErrors.SYNTHESIS)
+            callback.error(android.speech.tts.TextToSpeech.ERROR_SYNTHESIS)
             callback.done() // AOSP 契约：start 前的 error 必须后接 done 才派发 onError
             return SynthResult(false, true, false, 24000)
         }
@@ -337,9 +412,9 @@ class SynthesisCoordinator(
             }
             Log.w(TAG, "WARN|SYNTH_REJECT|req=$reqId|reason=$reason|state=${sm.state}")
             val err = if (sm.state == EngineState.NO_MODEL) {
-                TextToSpeechErrors.NOT_INSTALLED_YET
+                android.speech.tts.TextToSpeech.ERROR_NOT_INSTALLED_YET
             } else {
-                TextToSpeechErrors.SYNTHESIS
+                android.speech.tts.TextToSpeech.ERROR_SYNTHESIS
             }
             callback.error(err)
             callback.done() // AOSP 契约：同上，否则客户端永久挂起
@@ -353,7 +428,7 @@ class SynthesisCoordinator(
         }
 
         if (!sm.onSynthesizeStart()) {
-            callback.error(TextToSpeechErrors.SYNTHESIS)
+            callback.error(android.speech.tts.TextToSpeech.ERROR_SYNTHESIS)
             callback.done() // AOSP 契约：同上
             return SynthResult(false, true, false, engine.sampleRate)
         }
@@ -445,7 +520,7 @@ class SynthesisCoordinator(
                 try {
                     if (!started.get()) {
                         val rc = callback.start(streamSr, AudioFormat.ENCODING_PCM_16BIT, 1)
-                        if (rc != TextToSpeechErrors.SUCCESS) {
+                        if (rc != android.speech.tts.TextToSpeech.SUCCESS) {
                             aborted.set(true)
                             return false
                         }
@@ -454,7 +529,7 @@ class SynthesisCoordinator(
                     val end = minOf(i + MAX_AUDIO_BYTES, pcm.size)
                     val slice = if (i == 0 && end == pcm.size) pcm else pcm.copyOfRange(i, end)
                     val rc = callback.audioAvailable(slice, 0, slice.size)
-                    if (rc != TextToSpeechErrors.SUCCESS) {
+                    if (rc != android.speech.tts.TextToSpeech.SUCCESS) {
                         aborted.set(true)
                         return false
                     }
@@ -703,7 +778,7 @@ class SynthesisCoordinator(
         if (!started.get()) {
             if (text.isNotBlank() && segments.any { it.kind != SegmentKind.EMPTY }) {
                 // 红线 3：非空文本零音频必须 error 可见（假成功禁令）
-                callback.error(TextToSpeechErrors.SYNTHESIS)
+                callback.error(android.speech.tts.TextToSpeech.ERROR_SYNTHESIS)
                 callback.done() // AOSP 契约：同上
                 return SynthResult(false, true, false, sr)
             }
@@ -726,6 +801,17 @@ class SynthesisCoordinator(
     }
 
     /** 有界等待后端就绪（条件变量，非 sleep 轮询；红线 7） */
+    /**
+     * 预览通道借用常驻后端（P7 / R1，BUG-P7-015）。
+     *
+     * 真机实测：预览通道原先每次试听都自建后端并 `load()`+`release()`（SDM845 单次 12.2 s，
+     * 连续第二次试听总耗时 80.0 s）。现改为借用本协调器的常驻实例：
+     * **借用方严禁调用 `release()`**（释放权归协调器：模型切换 / 服务销毁）。
+     *
+     * @param isStopped 中止判定（预览侧传自身播放标志），确保等待就绪期间可被及时打断。
+     */
+    fun borrowBackend(isStopped: () -> Boolean): SherpaBackend? = awaitBackend(isStopped)
+
     private fun awaitBackend(isStopped: () -> Boolean): SherpaBackend? {
         backend?.takeIf { it.isReady() }?.let { return it }
         if (sm.state == EngineState.NO_MODEL || sm.state == EngineState.ERROR) return null
@@ -738,7 +824,7 @@ class SynthesisCoordinator(
                 val remain = deadline - System.nanoTime()
                 if (remain <= 0L) return null
                 try {
-                    readyCond.await(remain, TimeUnit.NANOSECONDS)
+                    readyCond.await(minOf(remain, 50_000_000L), TimeUnit.NANOSECONDS)
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                     return null
@@ -754,9 +840,9 @@ class SynthesisCoordinator(
     }
 }
 
-/** TextToSpeech 常量镜像（避免引擎模块依赖 framework 常量歧义） */
-object TextToSpeechErrors {
-    const val SUCCESS = 0
-    const val SYNTHESIS = -4
-    const val NOT_INSTALLED_YET = -12
-}
+/**
+ * P7 / R7（BUG-P7-001）：原 `TextToSpeechErrors` 常量镜像已**删除**——其值错位
+ * （SYNTHESIS=-4 实为平台 ERROR_SERVICE；NOT_INSTALLED_YET=-12 为未定义值，平台应为 -9），
+ * 已导致客户端（Legado）实测收到 `onError errorCode:-4`。现一律直接引用平台常量
+ * `android.speech.tts.TextToSpeech.ERROR_*` / `SUCCESS`。
+ */

@@ -82,41 +82,59 @@ class PreviewPlayer(private val context: Context) {
                 val modelId = ConfigStore.modelId()
                 val spec = ModelCatalog.byId(modelId)
                 val dir = File(context.filesDir, "models/${spec.id}")
-                val backend = SherpaBackend(dir, spec, ConfigStore.threads())
-                backend.load()
+                // ── P7 / R1 + R3（BUG-P7-015）：优先**借用**协调器的常驻后端，且用后不释放 ──
+                // 原实现每次试听都 new + load() + release()：真机（SDM845）实测单次整模型加载 12.2 s，
+                // 连续第二次试听总耗时 80.0 s。共享后这些代价只在服务首启（预热）发生一次。
+                // 回落条件：协调器不存在（例如进程被 PreviewService 单独拉起、TTS 服务尚未创建）。
+                // 回落条件：仅在协调器创建失败等异常情形下才自建实例（正常路径不会走到）
+                val borrowed = CoordinatorHolder.getOrCreate(context).borrowBackend { !playing.get() }
+                val owned = borrowed == null
+                val backend = borrowed
+                    ?: SherpaBackend(dir, spec, ConfigStore.threads()).also { it.load() }
                 if (!backend.isReady()) {
                     listener.onError(-12, backend.loadError ?: "模型未就绪")
-                    backend.release()
+                    if (owned) backend.release() // 仅自有实例才释放；借用实例的释放权归协调器
                     playing.set(false)
                     return@execute
                 }
+                Log.i(TAG, "PREVIEW|backend_ready|borrowed=${!owned}|sr=${backend.sampleRate}")
                 val pool = VoiceCatalog.poolForModel(modelId, backend.numSpeakers())
                 val voice = VoiceCatalog.resolve(pool, voiceId ?: ConfigStore.narratorVoice())
-                startTrack(backend.sampleRate, listener)
+                // P7 插桩（BUG-P7-016）：定位"首个请求 playing 之后迟迟不结束"的阻塞点
+                val tTask = System.currentTimeMillis()
+                val tTrack = System.currentTimeMillis()
+                val trackOk = startTrack(backend.sampleRate, listener)
+                Log.i(TAG, "PREVIEW|track_open|ok=$trackOk|ms=${System.currentTimeMillis() - tTrack}")
                 val segments = TextAnalyzer.analyze(cleaned)
                 var doneSeg = 0
                 for (seg in segments) {
                     if (!playing.get()) break
                     if (seg.text.isBlank()) continue
                     val spoken = seg.text
+                    val tSynth = System.currentTimeMillis()
                     val pcm = backend.generatePcm(spoken, voice.speakerId, SpeedMapper.actualSpeed(100 * speed.toInt().coerceAtLeast(1), 0f).let {
                         // speed here is already multiplier 0.5..2
                         speed.coerceIn(0.5f, 2.0f)
                     })
+                    Log.i(TAG, "PREVIEW|synth|chars=${spoken.length}|bytes=${pcm.size}|ms=${System.currentTimeMillis() - tSynth}")
                     if (pcm.isNotEmpty() && playing.get()) {
                         var i = 0
+                        val tWrite = System.currentTimeMillis()
                         while (i < pcm.size && playing.get()) {
                             val end = minOf(i + 4096, pcm.size)
                             track?.write(pcm, i, end - i)
                             i = end
                         }
+                        Log.i(TAG, "PREVIEW|write|bytes=$i/${pcm.size}|ms=${System.currentTimeMillis() - tWrite}|playing=${playing.get()}")
                     }
                     doneSeg++
                     listener.onProgress((doneSeg * 100) / segments.size.coerceAtLeast(1))
                 }
                 // fade out
+                Log.i(TAG, "PREVIEW|segments_done|count=$doneSeg|total_ms=${System.currentTimeMillis() - tTask}")
                 runCatching { track?.stop() }
-                backend.release()
+                // P7 / R1：仅"自建实例"才在此释放；借用协调器的常驻后端一律不释放
+                if (owned) backend.release()
                 stop()
                 listener.onDone()
             } catch (t: Throwable) {

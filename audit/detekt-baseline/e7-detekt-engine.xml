@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<checkstyle version="4.3">
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/HttpDownloader.kt">
+	<error line="125" column="9" severity="warning" message="The function download appears to be too complex based on Cyclomatic Complexity (complexity: 22). Defined complexity threshold for methods is set to &apos;15&apos;" source="detekt.CyclomaticComplexMethod" />
+	<error line="125" column="9" severity="warning" message="Function download is nested too deeply." source="detekt.NestedBlockDepth" />
+	<error line="81" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="57" column="9" severity="warning" message="Function pickFastest has 5 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="125" column="9" severity="warning" message="Too many throw statements in the function download. The maximum number of allowed throw statements is 2." source="detekt.ThrowsCount" />
+	<error line="60" column="69" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="100" column="38" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="104" column="45" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="104" column="50" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="111" column="57" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="150" column="39" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="160" column="41" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="160" column="46" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="189" column="29" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="190" column="26" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/OnlineRouter.kt">
+	<error line="72" column="15" severity="warning" message="The function select(onlineEnabled: Boolean, apiKey: KeyText, keyKind: String, baseUrl: String, model: String, voice: String, style: String, tokenPlanAccepted: Boolean, allowMobileData: Boolean, onCellular: Boolean, roleEnabled: Boolean, roles: Map&lt;String, RoleVoiceDesign&gt;) has too many parameters. The current threshold is set to 6." source="detekt.LongParameterList" />
+	<error line="72" column="9" severity="warning" message="Function select has 5 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/LocalTextToSpeechService.kt">
+	<error line="20" column="7" severity="warning" message="Class &apos;LocalTextToSpeechService&apos; with &apos;11&apos; functions detected. Defined threshold inside classes is set to &apos;11&apos;" source="detekt.TooManyFunctions" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/PreviewPlayer.kt">
+	<error line="154" column="17" severity="warning" message="The function tryOnlinePreview is too long (89). The maximum length is 60." source="detekt.LongMethod" />
+	<error line="59" column="9" severity="warning" message="The function preview is too long (70). The maximum length is 60." source="detekt.LongMethod" />
+	<error line="59" column="9" severity="warning" message="The function preview appears to be too complex based on Cyclomatic Complexity (complexity: 24). Defined complexity threshold for methods is set to &apos;15&apos;" source="detekt.CyclomaticComplexMethod" />
+	<error line="154" column="17" severity="warning" message="The function tryOnlinePreview appears to be too complex based on Cyclomatic Complexity (complexity: 25). Defined complexity threshold for methods is set to &apos;15&apos;" source="detekt.CyclomaticComplexMethod" />
+	<error line="140" column="22" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="154" column="17" severity="warning" message="Function tryOnlinePreview has 6 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="115" column="1" severity="warning" message="Line detected, which is longer than the defined maximum line length in the code style." source="detekt.MaxLineLength" />
+	<error line="119" column="1" severity="warning" message="Line detected, which is longer than the defined maximum line length in the code style." source="detekt.MaxLineLength" />
+	<error line="128" column="1" severity="warning" message="Line detected, which is longer than the defined maximum line length in the code style." source="detekt.MaxLineLength" />
+	<error line="110" column="17" severity="warning" message="The loop contains more than one break or continue statement. The code should be refactored to increase readability." source="detekt.LoopWithTooManyJumpStatements" />
+	<error line="95" column="39" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="115" column="100" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="117" column="40" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="124" column="49" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="131" column="52" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="143" column="35" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="180" column="43" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="223" column="52" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="226" column="56" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="233" column="62" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="325" column="46" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="360" column="38" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="386" column="38" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/OnlineRoleRefiner.kt">
+	<error line="89" column="26" severity="warning" message="The function refineOne(base: String, key: String, model: String, name: String, excerpt: String, known: List&lt;String&gt;) has too many parameters. The current threshold is set to 6." source="detekt.LongParameterList" />
+	<error line="133" column="14" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="39" column="9" severity="warning" message="Function refinePending has 8 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="106" column="33" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="107" column="43" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="164" column="29" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="165" column="26" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="166" column="27" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/SherpaBackend.kt">
+	<error line="46" column="17" severity="warning" message="The function loadLocked is too long (62). The maximum length is 60." source="detekt.LongMethod" />
+	<error line="22" column="7" severity="warning" message="Class &apos;SherpaBackend&apos; with &apos;11&apos; functions detected. Defined threshold inside classes is set to &apos;11&apos;" source="detekt.TooManyFunctions" />
+	<error line="110" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="154" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="169" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="181" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="134" column="17" severity="warning" message="Function generateStreamingLocked has 3 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="163" column="17" severity="warning" message="Function generatePcmLocked has 3 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="109" column="1" severity="warning" message="Line detected, which is longer than the defined maximum line length in the code style." source="detekt.MaxLineLength" />
+	<error line="32" column="27" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/SynthesisCoordinator.kt">
+	<error line="209" column="17" severity="warning" message="The function reloadInternal is too long (87). The maximum length is 60." source="detekt.LongMethod" />
+	<error line="380" column="9" severity="warning" message="The function synthesize is too long (237). The maximum length is 60." source="detekt.LongMethod" />
+	<error line="50" column="7" severity="warning" message="Class SynthesisCoordinator is too large. Consider splitting it into smaller pieces." source="detekt.LargeClass" />
+	<error line="209" column="17" severity="warning" message="The function reloadInternal appears to be too complex based on Cyclomatic Complexity (complexity: 17). Defined complexity threshold for methods is set to &apos;15&apos;" source="detekt.CyclomaticComplexMethod" />
+	<error line="380" column="9" severity="warning" message="The function synthesize appears to be too complex based on Cyclomatic Complexity (complexity: 125). Defined complexity threshold for methods is set to &apos;15&apos;" source="detekt.CyclomaticComplexMethod" />
+	<error line="380" column="9" severity="warning" message="Function synthesize is nested too deeply." source="detekt.NestedBlockDepth" />
+	<error line="50" column="7" severity="warning" message="Class &apos;SynthesisCoordinator&apos; with &apos;17&apos; functions detected. Defined threshold inside classes is set to &apos;11&apos;" source="detekt.TooManyFunctions" />
+	<error line="223" column="21" severity="warning" message="This condition is too complex (4). Defined complexity threshold for conditions is set to &apos;4&apos;" source="detekt.ComplexCondition" />
+	<error line="296" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="540" column="26" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="596" column="22" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="728" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="513" column="13" severity="warning" message="Function pushBytes has 5 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="603" column="13" severity="warning" message="Function enqueue has 3 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="380" column="9" severity="warning" message="Function synthesize has 8 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="815" column="17" severity="warning" message="Function awaitBackend has 7 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="579" column="17" severity="warning" message="The loop contains more than one break or continue statement. The code should be refactored to increase readability." source="detekt.LoopWithTooManyJumpStatements" />
+	<error line="639" column="13" severity="warning" message="The loop contains more than one break or continue statement. The code should be refactored to increase readability." source="detekt.LoopWithTooManyJumpStatements" />
+	<error line="739" column="13" severity="warning" message="The loop contains more than one break or continue statement. The code should be refactored to increase readability." source="detekt.LoopWithTooManyJumpStatements" />
+	<error line="107" column="42" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="165" column="30" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="398" column="52" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="421" column="52" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="500" column="58" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="566" column="63" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="568" column="68" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="571" column="62" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="607" column="42" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="722" column="54" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="725" column="50" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="738" column="63" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="741" column="42" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="771" column="53" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="819" column="64" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="827" column="51" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/ConfigStore.kt">
+	<error line="16" column="8" severity="warning" message="Object &apos;ConfigStore&apos; with &apos;65&apos; functions detected. Defined threshold inside objects is set to &apos;11&apos;" source="detekt.TooManyFunctions" />
+	<error line="188" column="47" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/OnlineBackend.kt">
+	<error line="125" column="17" severity="warning" message="The function runStream is too long (83). The maximum length is 60." source="detekt.LongMethod" />
+	<error line="125" column="17" severity="warning" message="The function runStream appears to be too complex based on Cyclomatic Complexity (complexity: 34). Defined complexity threshold for methods is set to &apos;15&apos;" source="detekt.CyclomaticComplexMethod" />
+	<error line="125" column="17" severity="warning" message="Function runStream is nested too deeply." source="detekt.NestedBlockDepth" />
+	<error line="203" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="207" column="34" severity="warning" message="Instead of catching for a general exception type and checking for a specific exception type, use multiple catch blocks." source="detekt.InstanceOfCheckForException" />
+	<error line="180" column="42" severity="warning" message="In most cases using a spread operator causes a full copy of the array to be created before calling a method. This may result in a performance penalty." source="detekt.SpreadOperator" />
+	<error line="58" column="9" severity="warning" message="Function synthesize has 5 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="125" column="17" severity="warning" message="Function runStream has 6 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="279" column="9" severity="warning" message="Function get has 3 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="170" column="17" severity="warning" message="The loop contains more than one break or continue statement. The code should be refactored to increase readability." source="detekt.LoopWithTooManyJumpStatements" />
+	<error line="81" column="103" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="106" column="88" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="115" column="47" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="153" column="25" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="153" column="30" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="154" column="25" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="157" column="107" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="211" column="64" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="264" column="29" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="265" column="26" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="266" column="27" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/SafeExtractor.kt">
+	<error line="56" column="17" severity="warning" message="Function extractTarBz2 is nested too deeply." source="detekt.NestedBlockDepth" />
+	<error line="86" column="17" severity="warning" message="Function extractZip is nested too deeply." source="detekt.NestedBlockDepth" />
+	<error line="42" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="24" column="9" severity="warning" message="Too many throw statements in the function extract. The maximum number of allowed throw statements is 2." source="detekt.ThrowsCount" />
+	<error line="56" column="17" severity="warning" message="Too many throw statements in the function extractTarBz2. The maximum number of allowed throw statements is 2." source="detekt.ThrowsCount" />
+	<error line="86" column="17" severity="warning" message="Too many throw statements in the function extractZip. The maximum number of allowed throw statements is 2." source="detekt.ThrowsCount" />
+	<error line="124" column="33" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="124" column="38" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/ModelDownloader.kt">
+	<error line="83" column="9" severity="warning" message="The function downloadAndInstall is too long (68). The maximum length is 60." source="detekt.LongMethod" />
+	<error line="24" column="7" severity="warning" message="Class &apos;ModelDownloader&apos; with &apos;14&apos; functions detected. Defined threshold inside classes is set to &apos;11&apos;" source="detekt.TooManyFunctions" />
+	<error line="151" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="177" column="22" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="239" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="83" column="9" severity="warning" message="Function downloadAndInstall has 5 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="160" column="17" severity="warning" message="Function downloadWithSources has 5 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="139" column="1" severity="warning" message="Line detected, which is longer than the defined maximum line length in the code style." source="detekt.MaxLineLength" />
+	<error line="94" column="82" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="188" column="33" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="188" column="38" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/PcmSpeedStretcher.kt">
+	<error line="49" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="65" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="96" column="75" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="99" column="75" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/MigrationHelper.kt">
+	<error line="30" column="18" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="96" column="17" severity="warning" message="Function validateModelDir has 7 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/NetState.kt">
+	<error line="21" column="14" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/EngineApp.kt">
+	<error line="51" column="26" severity="warning" message="The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled." source="detekt.TooGenericExceptionCaught" />
+	<error line="60" column="38" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="80" column="46" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/DownloadService.kt">
+	<error line="61" column="54" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="91" column="38" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="123" column="38" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/ManifestRepository.kt">
+	<error line="34" column="9" severity="warning" message="Function load has 4 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="113" column="13" severity="warning" message="The loop contains more than one break or continue statement. The code should be refactored to increase readability." source="detekt.LoopWithTooManyJumpStatements" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/PreviewService.kt">
+	<error line="44" column="39" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/engine/src/main/java/com/kermond/ebook2tts/engine/RoleRegistry.kt">
+	<error line="70" column="9" severity="warning" message="Function put has 3 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+</file>
+</checkstyle>

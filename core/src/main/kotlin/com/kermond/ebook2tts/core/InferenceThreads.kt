@@ -17,8 +17,33 @@ object InferenceThreads {
     const val MAX = 8
     const val MIN = 2
 
-    fun resolve(cores: Int, stored: Int = 0): Int {
+    /**
+     * 解析生效线程数（P7 / ADR-018：按核簇拓扑分配）。
+     *
+     * - 用户显式设置（stored > 0）优先，夹取到 [1, [MAX]]；
+     * - 未设置 ⇒ `clamp(cores-1, MIN, 性能核数)`：**上限取性能核（大核）数**，避免在 big.LITTLE 上
+     *   让 ORT 起过多线程去争抢少数大核（实机 SDM845：7 线程 108 s→ 4 线程 83.6 s → 2 线程 69 s）；
+     * - `perfCores <= 0`（拓扑未知）⇒ 退回旧行为（上限 MAX），保持与 IM-522 同构核设备上的既有收益。
+     */
+    fun resolve(cores: Int, stored: Int = 0, perfCores: Int = 0): Int {
         if (stored > 0) return stored.coerceIn(1, MAX)
-        return (cores - 1).coerceIn(MIN, MAX)
+        val ceiling = if (perfCores > 0) maxOf(MIN, minOf(perfCores, MAX)) else MAX
+        return (cores - 1).coerceIn(MIN, ceiling)
     }
+
+    /**
+     * 由各核最大频率（kHz）分簇求**性能核数**（纯函数，便于单测；判定在 Android 侧读 `cpufreq` 后传入）。
+     *
+     * 规则：以最高频为基准，统计 `maxFreq >= 最高频 × PERF_RATIO` 的核数（默认 0.75）。
+     * 同构核设备 ⇒ 返回总核数（等价于旧行为）；big.LITTLE ⇒ 只返回大核数。
+     */
+    fun perfCoreCount(maxFreqKHz: List<Int>, ratio: Double = PERF_RATIO): Int {
+        val valid = maxFreqKHz.filter { it > 0 }
+        if (valid.isEmpty()) return 0
+        val top = valid.max()
+        return valid.count { it >= top * ratio }
+    }
+
+    /** 性能核判定阈值：≥ 最高频的 75% 视为同一性能簇（覆盖 A75/A55 这类典型 2.8/1.76 GHz 分簇） */
+    const val PERF_RATIO = 0.75
 }

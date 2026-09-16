@@ -13,7 +13,9 @@ android {
         minSdk = 27
         consumerProguardFiles("consumer-rules.pro")
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            // ABI 收敛（P7 / RQ-512）：放弃 32 位（armeabi-v7a）；arm64-v8a 为正式目标，
+            // x86_64 仅用于模拟器调试链路。
+            abiFilters += listOf("arm64-v8a", "x86_64")
         }
     }
 
@@ -45,7 +47,7 @@ dependencies {
     // 故此处 compileOnly（编译期可见），运行时由宿主 App 模块以 implementation(files(...)) 引入，
     // 产物中仍会正确包含 .so 与类。
     compileOnly(files("libs/sherpa-onnx-1.13.8.aar"))
-    api("com.tencent:mmkv:1.3.9")
+    api("com.tencent:mmkv:2.4.2")
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")

@@ -56,9 +56,26 @@ object ConfigStore {
      * 典型做法是 num_threads ≈ 物理大核数（常取 4~8）；超过 ~8 后收益被内存带宽吃掉，
      * 且会与音频回放线程抢核导致推流抖动，故本实现设 8 为硬上限。
      */
+    /**
+     * 性能核（大核）数（P7 / ADR-018）：读各核 `cpufreq/cpuinfo_max_freq` 分簇判定。
+     * 只读一次并缓存（CPU 拓扑不会变）；失败或读不到 ⇒ 0（调用方退回旧行为）。
+     */
+    private val perfCores: Int by lazy {
+        runCatching {
+            val n = Runtime.getRuntime().availableProcessors()
+            val freqs = (0 until n).mapNotNull { i ->
+                java.io.File("/sys/devices/system/cpu/cpu$i/cpufreq/cpuinfo_max_freq")
+                    .takeIf { it.canRead() }
+                    ?.readText()?.trim()?.toIntOrNull()
+            }
+            InferenceThreads.perfCoreCount(freqs)
+        }.getOrDefault(0)
+    }
+
     fun threads(): Int = InferenceThreads.resolve(
         cores = Runtime.getRuntime().availableProcessors(),
         stored = kv().decodeInt("engine.threads", 0),
+        perfCores = perfCores,
     )
 
     fun setThreads(n: Int) {

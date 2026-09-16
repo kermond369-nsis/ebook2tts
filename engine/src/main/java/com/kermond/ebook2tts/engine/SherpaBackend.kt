@@ -106,7 +106,7 @@ class SherpaBackend(
             val engine = OfflineTts(config = config)
             tts = engine
             sampleRate = engine.sampleRate()
-            Log.i(TAG, "loaded sr=$sampleRate speakers=${engine.numSpeakers()} threads=${ConfigStore.threads()}")
+            Log.i(TAG, "loaded sr=$sampleRate speakers=${engine.numSpeakers()} threads=$numThreads")  // P7: 打印实际生效线程数（原为 ConfigStore 值，与覆盖钩子不符）
         } catch (t: Throwable) {
             loadError = t.message ?: t.toString()
             Log.e(TAG, "load failed", t)

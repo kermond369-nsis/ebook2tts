@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<checkstyle version="4.3">
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/OnlineRole.kt">
+	<error line="118" column="13" severity="warning" message="The function plan(baseModel: String, baseVoice: String, baseStyle: String, roleEnabled: Boolean, roleName: String?, design: RoleVoiceDesign?) has too many parameters. The current threshold is set to 6." source="detekt.LongParameterList" />
+	<error line="126" column="13" severity="warning" message="This condition is too complex (4). Defined complexity threshold for conditions is set to &apos;4&apos;" source="detekt.ComplexCondition" />
+	<error line="146" column="9" severity="warning" message="system is returning a constant. Prefer declaring a constant instead." source="detekt.FunctionOnlyReturningConstant" />
+	<error line="154" column="36" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/NumberReader.kt">
+	<error line="50" column="9" severity="warning" message="Function speakDigits is nested too deeply." source="detekt.NestedBlockDepth" />
+	<error line="58" column="21" severity="warning" message="This condition is too complex (4). Defined complexity threshold for conditions is set to &apos;4&apos;" source="detekt.ComplexCondition" />
+	<error line="17" column="9" severity="warning" message="Function readNumber has 6 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="19" column="17" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="20" column="17" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="20" column="37" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="20" column="67" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="21" column="17" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="22" column="29" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="23" column="29" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="27" column="17" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="28" column="33" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="29" column="28" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="34" column="24" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="35" column="24" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="41" column="23" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="42" column="24" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="45" column="25" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/TextAnalyzer.kt">
+	<error line="104" column="17" severity="warning" message="This condition is too complex (5). Defined complexity threshold for conditions is set to &apos;4&apos;" source="detekt.ComplexCondition" />
+	<error line="41" column="9" severity="warning" message="Function analyze has 3 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="81" column="17" severity="warning" message="Function classify has 3 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="50" column="9" severity="warning" message="The loop contains more than one break or continue statement. The code should be refactored to increase readability." source="detekt.LoopWithTooManyJumpStatements" />
+	<error line="38" column="53" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="97" column="25" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="98" column="43" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="99" column="22" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="100" column="28" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="110" column="25" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/OnlineSettings.kt">
+	<error line="67" column="9" severity="warning" message="Function keyMismatchWarning has 3 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/LocalModeAdvisor.kt">
+	<error line="66" column="9" severity="warning" message="Function judge has 8 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/PcmChunker.kt">
+	<error line="11" column="57" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="24" column="43" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="24" column="73" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="24" column="77" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="25" column="42" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="34" column="24" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="40" column="24" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="51" column="24" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="62" column="33" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="62" column="64" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="66" column="41" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="68" column="25" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="69" column="18" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="69" column="30" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="70" column="47" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="70" column="54" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="71" column="30" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="72" column="35" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="72" column="42" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="80" column="26" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="80" column="52" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="80" column="59" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="81" column="33" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="82" column="38" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="82" column="45" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/TextClean.kt">
+	<error line="34" column="9" severity="warning" message="Function isJunkLine has 3 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="61" column="9" severity="warning" message="Function chapterSpeakText has 3 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="24" column="31" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="24" column="47" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="24" column="64" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="25" column="32" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="25" column="36" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="56" column="39" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="77" column="28" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="77" column="36" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="78" column="28" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="78" column="36" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/ModelLayout.kt">
+	<error line="22" column="9" severity="warning" message="Function resolveRoot has 4 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/OnlineVoiceMap.kt">
+	<error line="58" column="9" severity="warning" message="Function pick has 4 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/SpeedMapper.kt">
+	<error line="15" column="34" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/ProcessNames.kt">
+	<error line="12" column="9" severity="warning" message="Function parseCmdline has 3 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="36" column="9" severity="warning" message="Function hasUnsafeZipEntryName has 6 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/MirrorResolver.kt">
+	<error line="25" column="9" severity="warning" message="Function customUrl has 7 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="38" column="9" severity="warning" message="Function withCustomMirror has 3 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/RoleAssigner.kt">
+	<error line="44" column="17" severity="warning" message="Function assignDialogue has 4 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="32" column="30" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+<file name="[PROJECT-DIR]/core/src/main/kotlin/com/kermond/ebook2tts/core/VoiceCatalog.kt">
+	<error line="98" column="9" severity="warning" message="Function defaultNarrator has 6 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="118" column="9" severity="warning" message="Function resolve has 4 return statements which exceeds the limit of 2." source="detekt.ReturnCount" />
+	<error line="62" column="21" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="62" column="24" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="63" column="29" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="66" column="37" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="69" column="21" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="69" column="25" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="70" column="29" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="73" column="37" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="83" column="56" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="84" column="58" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+	<error line="90" column="62" severity="warning" message="This expression contains a magic number. Consider defining it to a well named constant." source="detekt.MagicNumber" />
+</file>
+</checkstyle>

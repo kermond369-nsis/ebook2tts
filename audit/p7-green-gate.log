@@ -1,0 +1,25 @@
+=== 全绿门禁（E9 前必查）00:27:36 ===
+--- gradle 单测 ---
+BUILD SUCCESSFUL in 23s
+19 actionable tasks: 3 executed, 16 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.1.0/userguide/configuration_cache_enabling.html
+--- flutter analyze ---
+Analyzing app...                                                
+No issues found! (ran in 2.8s)
+--- flutter test ---
+00:00 +0: 导航壳可切换，六个页面均非空白
+00:02 +1: 默认值：在线朗读关、数据流量关、按量计费
+00:03 +2: All tests passed!
+--- 死资源检查：drawable-v21（minSdk 27 下无用）---
+app/android/app/src/main/res/drawable-v21
+--- 依赖陈旧（outdated，仅报告不升级）---
+material_color_utilities  *0.13.0  *0.13.0     *0.13.0     0.13.1  
+meta                      *1.18.3  1.19.0      1.19.0      1.19.0  
+test_api                  *0.7.12  *0.7.12     *0.7.12     0.7.14  
+vector_math               *2.4.0   2.4.2       2.4.2       2.4.2   
+
+2 upgradable dependencies are locked (in pubspec.lock) to older versions.
+To update these dependencies, use `flutter pub upgrade`.
+all dependencies are up-to-date.
+=== 结束 00:28:18 ===
+EXIT=0
