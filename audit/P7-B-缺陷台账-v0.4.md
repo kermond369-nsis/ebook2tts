@@ -568,3 +568,24 @@ PREVIEW|progress=100 → PREVIEW|segments_done|count=1|total_ms=9774 → PREVIEW
 3. **剩余 85 s/句属模型重量问题，不是本 Bug 的一部分** ⇒ 由 BUG-P7-017（RTF 12~19×）与 RQ-515/516（低配警告）+ IM-543（轻量模型档位）承接。
 
 **遗留（不影响结案）**：`synth` 耗时 85 s 仍远超可用阈值；低配设备上"本地模式不可用"是**已被甲方接受的结果**（RQ-516）。
+
+---
+
+### E6 起步：低配判定的数据来源核实（2026-09-17 00:0x）
+
+**本机（真机）实测型号串**（`getprop`，可直接用于阈值表）：
+```
+ro.product.model      = Mi MIX 2S
+ro.product.board      = sdm845
+ro.board.platform     = sdm845
+ro.soc.model          = SDM845          ← Android 12+（本机 sdk=34）可用，粘性标识
+ro.soc.manufacturer   = Qualcomm
+```
+⇒ **判定实现以 `ro.soc.model` 为主键可行**（低配阈值：低于骁龙 8 Gen 1 / 低于天玑 9300 需按此串建表）。
+
+**玄戒（XRING）例外项的核实结果（不得编造）**
+- **XRING O1**：公开资料可证已上市（Xiaomi 15S Pro / Pad 7 Ultra，10 核，TSMC N3E）——但**其 `ro.soc.model` 具体字符串未能从公开资料核实**；
+- **XRING O3**：**公开资料未见**（仅有 O2 在研的报道）⇒ 字符串无法核实。
+- **处置**：例外判定**按厂商/家族模式匹配**（`ro.soc.manufacturer`/`ro.soc.model` 命中 XRING 家族关键字即豁免告警），
+  **不硬编码具体型号串**；并在实现中标注"**O1/O3 实际串待实测确认**"（拿到真机或 `getprop` 转储后回填）。
+  该做法同时满足"玄戒不告警"（RQ-515）与"不猜事实"两条约束。
