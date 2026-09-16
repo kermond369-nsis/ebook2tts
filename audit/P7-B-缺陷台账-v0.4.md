@@ -613,3 +613,20 @@ ro.soc.manufacturer   = Qualcomm
 1. **Android 侧接线**：把判定接到"用户选择本地模式"的 UI 流程，弹 RQ-515 警告（需动 Flutter/引擎桥，属行为改动，放在与 UI 同批）；
 2. **运行时微基准兜底**：尚未实现（需要一次可控的本地合成采样，建议与缓存机制同批做，避免重复付出 85 s）；
 3. **玄戒 O1/O3 实际型号串**：待实测确认后回填（当前用族名匹配已满足"不告警"要求）。
+
+---
+
+### P7-012 ｜ 结论修正：**误报，无需处理**（2026-09-17 00:3x）
+
+**原判定**（P7 台账 v0.4）：`res/drawable-v21` 为死资源（minSdk 27 下的冗余版本目录）⇒ 建议删除。
+
+**实测推翻**（两步都做了，不是推理）：
+1. **内容不同**：`drawable/launch_background.xml` 用 `@android:color/white`；
+   `drawable-v21/launch_background.xml` 用 `?android:colorBackground`（主题感知，暗色模式友好）；
+2. **v21 恒胜**：minSdk 27 ⇒ 所有设备 ≥API 21 ⇒ **实际生效的一直是 v21 版本**；基础版才是**不可达**的那份；
+3. **删除测试（真实构建）**：把 v21 内容合并进 `drawable/` 并删除 `drawable-v21/` ⇒ **`flutter build apk --debug` 构建失败**
+   （Gradle `assembleDebug` exit 1）——因为 **aapt2 要求主题属性引用（`?android:...`）必须带 API 限定目录**，
+   即 `-v21` 限定是**必需**的，不是冗余；已 `git checkout` 回退，构建恢复。
+
+**处置**：**关闭该条（无需处理）**。`drawable/` 与 `drawable-v21/` 的并存是 Android 资源版本机制的**必要**形态；
+台账把它记为"死资源"属**误判**，已按"实现与文档不一致＝缺陷（文档背离现实）"原则回写修正。
