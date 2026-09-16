@@ -82,11 +82,18 @@ class PreviewPlayer(private val context: Context) {
                 val modelId = ConfigStore.modelId()
                 val spec = ModelCatalog.byId(modelId)
                 val dir = File(context.filesDir, "models/${spec.id}")
-                val backend = SherpaBackend(dir, spec, ConfigStore.threads())
-                backend.load()
+                // ── P7 / R1 + R3（BUG-P7-015）：优先**借用**协调器的常驻后端，且用后不释放 ──
+                // 原实现每次试听都 new + load() + release()：真机（SDM845）实测单次整模型加载 12.2 s，
+                // 连续第二次试听总耗时 80.0 s。共享后这些代价只在服务首启（预热）发生一次。
+                // 回落条件：协调器不存在（例如进程被 PreviewService 单独拉起、TTS 服务尚未创建）。
+                // 回落条件：仅在协调器创建失败等异常情形下才自建实例（正常路径不会走到）
+                val borrowed = CoordinatorHolder.getOrCreate(context).borrowBackend { !playing.get() }
+                val owned = borrowed == null
+                val backend = borrowed
+                    ?: SherpaBackend(dir, spec, ConfigStore.threads()).also { it.load() }
                 if (!backend.isReady()) {
                     listener.onError(-12, backend.loadError ?: "模型未就绪")
-                    backend.release()
+                    if (owned) backend.release() // 仅自有实例才释放；借用实例的释放权归协调器
                     playing.set(false)
                     return@execute
                 }
@@ -116,7 +123,8 @@ class PreviewPlayer(private val context: Context) {
                 }
                 // fade out
                 runCatching { track?.stop() }
-                backend.release()
+                // P7 / R1：仅"自建实例"才在此释放；借用协调器的常驻后端一律不释放
+                if (owned) backend.release()
                 stop()
                 listener.onDone()
             } catch (t: Throwable) {

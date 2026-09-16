@@ -29,8 +29,9 @@ class LocalTextToSpeechService : TextToSpeechService() {
     override fun onCreate() {
         super.onCreate()
         MigrationHelper.checkAndMigrate(this)
-        coordinator = SynthesisCoordinator(this)
-        coordinator.initAsync()
+        // P7 / R1：协调器改为**进程级单例**（预览通道可能先于 TTS 服务被拉起），
+        // 首个创建者触发一次预热；此后预览与系统朗读共享同一常驻后端。
+        coordinator = CoordinatorHolder.getOrCreate(this)
         ConfigStore.setStatusState("INITIALIZING")
         ConfigStore.notifyStatus(this, "INIT")
 
@@ -59,6 +60,7 @@ class LocalTextToSpeechService : TextToSpeechService() {
             super.onDestroy()
         } finally {
             coordinator.shutdown()
+            CoordinatorHolder.detach(coordinator) // P7 / R1：注销共享点
         }
     }
 
