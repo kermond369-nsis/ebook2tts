@@ -364,3 +364,19 @@
   `PREVIEW|write|bytes=…|ms=`、`PREVIEW|track_release|ms=`；同时对 `AudioTrack.write` 的返回值/耗时设阈值告警。
   同时复核 `stop()`/`releaseTrack()` 与写循环的竞态（红线 2：已有音频不得强停）。
 - **状态**：成立（现象确证）；根因待插桩
+
+#### BUG-P7-016 追加：插桩定位结果（2026-09-16 08:32，Mi MIX 2S）
+
+```
+08:32:32.109  PREVIEW|start
+08:32:44.454  SherpaBackend loaded          （协调器预热，全会话 1 次）
+08:32:44.466  PREVIEW|backend_ready|borrowed=true   ← R1 生效：预览借用了协调器后端
+08:32:44.481  PREVIEW|playing
+08:32:44.538  PREVIEW|track_open|ok=true|ms=68      ← AudioTrack 打开正常（非阻塞点）
+08:33:06.861  PREVIEW|start（第 2 次）               ← 22 s 内**无任何 synth 打点**
+```
+
+- **阻塞区间已缩小**：`track_open` 之后、首个 `PREVIEW|synth` 之前 ⇒ 即 **`backend.generatePcm()` 原生合成调用**（`NativeGate` 内）或其前置（`TextAnalyzer.analyze`）。
+- `NativeGate` 本身是 `ReentrantLock`（无自旋），故 133% CPU 属**真实计算**而非锁自旋。
+- **新观察（待定论）**：同进程内出现 **4 个 `tts-reload` 线程处于运行态**，而 `reloadExecutor` 是 `newSingleThreadExecutor`（正常只应有 1 个线程）⇒ 强烈提示**多协调器实例并存**：`CoordinatorHolder` 在 `LocalTextToSpeechService.onDestroy` 时 `detach`，若此时预览仍在使用，下一次预览会 `getOrCreate` **再创建一个协调器并再次预热**。
+- **下一步**：① 把协调器改为**进程生命周期单例**（服务销毁不 shutdown/detach，交由进程回收）；② 复测确认单实例；③ 若阻塞仍在，再对 `generatePcm` 分段计时（sherpa `generate` 回调粒度）。
