@@ -10,9 +10,11 @@ import '../widgets/common.dart';
 import '../widgets/online_consent_dialog.dart';
 import '../widgets/token_plan_dialog.dart';
 import 'disclaimer_page.dart';
+import 'mode_setup_page.dart';
 
 /// 设置页（IM-305）。
 ///
+
 /// ① 语速 ② 在线朗读总开关（默认关）③ 密钥类型（按量计费 / Token Plan）
 /// ④ API Key 输入 ⑤ Base URL 展示（自动跟随，可高级覆盖）⑥ 允许使用数据流量（默认关）
 /// ⑦ 自定义下载镜像 ⑧ 系统 TTS 设置入口 / 完整免责声明入口。
@@ -24,6 +26,22 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
+
+  /// 模式文案（RQ-513 设置页回显）
+  static String _modeLabel(String id) => switch (id) {
+        'only_online' => '仅在线',
+        'only_local' => '仅本地',
+        'prefer_local' => '本地优先',
+        _ => '在线优先',
+      };
+
+  Future<void> _openModeSetup(BuildContext ctx) async {
+    await Navigator.of(ctx).push(
+      MaterialPageRoute<void>(builder: (_) => ModeSetupPage(onDone: () async {})),
+    );
+    // 返回后重建 ⇒ FutureBuilder 重新读取（无需额外状态）
+  }
+
   final TextEditingController _apiKey = TextEditingController();
   final TextEditingController _baseUrlOverride = TextEditingController();
   final TextEditingController _mirror = TextEditingController();
@@ -79,6 +97,28 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
     return PageBody(
       children: [
+        // ⓪ 朗读模式（RQ-513）：回显当前模式并可更改
+        SectionCard(
+          title: '朗读模式',
+          subtitle: '开局选择：在线模式 / 本地模式，以及“仅用其一”或“谁优先”。',
+          child: FutureBuilder<RouteModeState?>(
+            future: SystemBridge.getRouteMode(),
+            builder: (ctx, snap) {
+              final id = snap.data?.mode ?? '';
+              final label = id.isEmpty ? '读取中…' : _modeLabel(id);
+              return Row(
+                children: [
+                  Expanded(child: Text('当前：$label')),
+                  FilledButton.tonal(
+                    onPressed: () => _openModeSetup(ctx),
+                    child: const Text('更改'),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        
         // ① 语速
         SectionCard(
           title: '语速',
