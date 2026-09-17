@@ -5,6 +5,7 @@ import android.media.AudioFormat
 import android.speech.tts.SynthesisCallback
 import android.util.Log
 import com.kermond.ebook2tts.core.EngineState
+import com.kermond.ebook2tts.core.RouteMode
 import com.kermond.ebook2tts.core.EngineStateMachine
 import com.kermond.ebook2tts.core.ModelCatalog
 import com.kermond.ebook2tts.core.OnlineSegmentPlan
@@ -359,7 +360,17 @@ class SynthesisCoordinator(
         return mapped
     }
 
+    /** RQ-513：上次「仅在线」硬阻断原因（非空 ⇒ 调用点须如实报错，不得静默走本地） */
+    @Volatile
+    private var lastOnlyOnlineBlock: String? = null
+
     private fun selectOnline(voiceHint: String?): BackendChoice.Online? {
+        // RQ-513 路由模式（P7 第二批）
+        val routeMode = ConfigStore.routeMode()
+        if (routeMode == RouteMode.ONLY_LOCAL) {
+            Log.i(TAG, "ROUTE|only_local|skip_online")
+            return null                       // 仅本地：不触网（先于 onlineEnabled 判断）
+        }
         if (!ConfigStore.onlineEnabled()) return null
         // 角色音色（RQ-507 / ADR-013）：**请求级一次性快照**；角色开关关闭时零触达
         val roleEnabled = ConfigStore.roleVoiceEnabled()
@@ -381,10 +392,18 @@ class SynthesisCoordinator(
                 onCellular = NetState.onCellular(context),
                 roleEnabled = roleEnabled,
                 roles = roles,
+                routeMode = routeMode,
+                localModelAvailable = true,   // 见 TODO-P7 ②c：接入"模型未安装"判据后再放宽 PREFER_LOCAL 回落
             )
         ) {
             is BackendChoice.Online -> choice
             is BackendChoice.Local -> {
+                if (routeMode == RouteMode.ONLY_ONLINE) {
+                    // 仅在线：**禁止**静默回落本地 —— 记录原因，由调用点如实报错
+                    lastOnlyOnlineBlock = OnlineSelector.hardBlockReason(choice) ?: choice.reason
+                    Log.e(TAG, "ONLINE|only_online_blocked|reason=${choice.reason}")
+                    return null
+                }
                 Log.i(TAG, "ONLINE|fallback=local|reason=${choice.reason}")
                 null
             }
@@ -461,6 +480,13 @@ class SynthesisCoordinator(
         // 在线关闭时 selectOnline() 仅一次 MMKV 内存读即返回 null：无网络、无 await、无线程/锁变化。
         // 显式音色（阅读器请求）参与在线音色映射：IM-517
         val onlineChoice = selectOnline(explicitVoiceName)
+        if (lastOnlyOnlineBlock != null) {
+            // RQ-513：仅在线且在线不可用 ⇒ **如实报错**（禁止静默回落本地）
+            Log.e(TAG, "ONLINE|only_online_blocked|abort|req=$reqId|reason=$lastOnlyOnlineBlock")
+            callback.error(android.speech.tts.TextToSpeech.ERROR_SYNTHESIS)
+            callback.done() // AOSP 契约：start 前的 error 必须后接 done，否则客户端永久挂起
+            return SynthResult(false, true, false, 24000)
+        }
         val onlineRequest = onlineChoice?.request
         var fallbackLogged = false
         if (onlineRequest != null) {

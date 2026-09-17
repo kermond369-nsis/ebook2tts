@@ -3,6 +3,7 @@ package com.kermond.ebook2tts.engine
 import com.kermond.ebook2tts.core.NetPolicy
 import com.kermond.ebook2tts.core.OnlineSegmentPlan
 import com.kermond.ebook2tts.core.OnlineSettings
+import com.kermond.ebook2tts.core.RouteMode
 import com.kermond.ebook2tts.core.RoleVoiceDesign
 
 /**
@@ -69,6 +70,18 @@ enum class FallbackAction {
  * 5. 其余 → 在线（域名按 keyKind 解析；密钥前缀不符只告警不阻断）
  */
 object OnlineSelector {
+    /**
+     * RQ-513「仅在线」硬阻断前缀：命中该前缀表示**不允许回落本地**，
+     * 上层（`SynthesisCoordinator` / `PreviewPlayer`）须如实报错而不是静默合成。
+     */
+    const val ONLY_ONLINE_BLOCKED_PREFIX = "only_online_blocked:"
+
+    /** 给定的选择结果是否为「仅在线」硬阻断（供上层与单测使用） */
+    fun hardBlockReason(choice: BackendChoice): String? =
+        (choice as? BackendChoice.Local)?.reason
+            ?.takeIf { it.startsWith(ONLY_ONLINE_BLOCKED_PREFIX) }
+            ?.removePrefix(ONLY_ONLINE_BLOCKED_PREFIX)
+
     fun select(
         onlineEnabled: Boolean,
         apiKey: KeyText,
@@ -82,7 +95,29 @@ object OnlineSelector {
         onCellular: Boolean,
         roleEnabled: Boolean = false,
         roles: Map<String, RoleVoiceDesign> = emptyMap(),
+        /** RQ-513 路由模式；默认 [RouteMode.DEFAULT] 保持旧行为（既有调用点零改动） */
+        routeMode: RouteMode = RouteMode.DEFAULT,
+        /** 本地模型是否可用（PREFER_LOCAL 回落判据）；默认 true = 与旧行为一致 */
+        localModelAvailable: Boolean = true,
     ): BackendChoice {
+        // RQ-513：仅本地 ⇒ 不触网（先于一切在线检查）
+        if (routeMode == RouteMode.ONLY_LOCAL) return BackendChoice.Local("only_local")
+        // RQ-513：优先本地 ⇒ 本地可用则直接本地；不可用才继续走在线检查（即回落在线）
+        if (routeMode == RouteMode.PREFER_LOCAL && localModelAvailable) {
+            return BackendChoice.Local("prefer_local")
+        }
+        // 在线不可用的具体原因（供 PREFER_ONLINE 回落与 ONLY_ONLINE 阻断复用）
+        val blockReason: String = run {
+            if (!onlineEnabled) return@run "online_disabled"
+            if (apiKey.trim().isEmpty()) return@run "no_key"
+            val k = OnlineSettings.normalizeKind(keyKind)
+            if (k == OnlineSettings.KIND_PLAN && !tokenPlanAccepted) return@run "tokenplan_not_accepted"
+            NetPolicy.blockReason(allowMobileData, onCellular) ?: ""
+        }
+        // RQ-513：仅在线 ⇒ 不允许静默回落本地；以 "only_online_blocked:" 前缀向上层暴露硬阻断
+        if (routeMode == RouteMode.ONLY_ONLINE && blockReason.isNotEmpty()) {
+            return BackendChoice.Local("$ONLY_ONLINE_BLOCKED_PREFIX$blockReason")
+        }
         if (!onlineEnabled) return BackendChoice.Local("online_disabled")
         val key = apiKey.trim()
         if (key.isEmpty()) return BackendChoice.Local("no_key")

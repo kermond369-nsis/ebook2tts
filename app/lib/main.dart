@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'pages/mode_setup_page.dart';
+import 'platform/system_bridge.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'engine/engine_service.dart';
@@ -39,7 +41,45 @@ class Ebook2TtsApp extends StatelessWidget {
       title: '书声本地',
       debugShowCheckedModeBanner: false,
       theme: Tokens.theme(),
-      home: const AppShell(),
+      home: const _StartGate(),
     );
+  }
+}
+
+/// 首启闸门（RQ-513）：未选择过朗读模式 ⇒ 先走「开局模式选择」；已选择 ⇒ 直接进主界面。
+///
+/// 桥不可用（异常/旧版本）⇒ 视为"已选择、保持默认"，**不打断**用户。
+class _StartGate extends StatefulWidget {
+  const _StartGate();
+
+  @override
+  State<_StartGate> createState() => _StartGateState();
+}
+
+class _StartGateState extends State<_StartGate> {
+  RouteModeState? _mode;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final v = await SystemBridge.getRouteMode();
+    if (!mounted) return;
+    setState(() => _mode = v ?? const RouteModeState(mode: 'prefer_online', chosen: true));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final st = _mode;
+    if (st == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (!st.chosen) {
+      return ModeSetupPage(onDone: _load);
+    }
+    return const AppShell();
   }
 }

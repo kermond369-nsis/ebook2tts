@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.kermond.ebook2tts.core.ModelCatalog
+import com.kermond.ebook2tts.core.RouteMode
 import com.kermond.ebook2tts.core.OnlineSettings
 import com.kermond.ebook2tts.core.VoiceCatalog
 import com.tencent.mmkv.MMKV
@@ -98,6 +99,25 @@ object ConfigStore {
 
     /** 在线朗读总开关（默认关；关闭时零网络） */
     fun onlineEnabled(): Boolean = kv().decodeBool("online.enabled", false)
+
+    /**
+     * 朗读路由模式（RQ-513，P7 第二批）。
+     *
+     * 默认 [RouteMode.DEFAULT]（= prefer_online）⇒ **不改变既有行为**；
+     * 开局/设置页写入后，`OnlineSelector.select` 按此决定链路与是否允许回落。
+     */
+    fun routeMode(): RouteMode = RouteMode.parse(kv().decodeString("route.mode", null))
+
+    fun setRouteMode(mode: RouteMode) {
+        kv().encode("route.mode", mode.id)
+    }
+
+    /** 开局模式是否已由用户选择过（RQ-513 首启流程）；未选 ⇒ 界面须先引导选择 */
+    fun routeChosen(): Boolean = kv().decodeBool("route.chosen", false)
+
+    fun setRouteChosen(chosen: Boolean) {
+        kv().encode("route.chosen", chosen)
+    }
     fun setOnlineEnabled(v: Boolean) {
         kv().encode("online.enabled", v)
     }

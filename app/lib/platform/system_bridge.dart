@@ -72,7 +72,41 @@ class SystemBridge {
       return null;
     }
   }
+  /// 读取朗读路由模式与"是否已选择"（RQ-513）。
+  ///
+  /// 返回 null（桥不可用）⇒ 界面按"已选择、保持默认"处理，**不打断**用户（fail-open）。
+  static Future<RouteModeState?> getRouteMode() async {
+    try {
+      final m = await _channel
+          .invokeMethod<Map<Object?, Object?>>('getRouteMode');
+      if (m == null) return null;
+      return RouteModeState(
+        mode: (m['mode'] as String?) ?? 'prefer_online',
+        chosen: (m['chosen'] as bool?) ?? true,
+      );
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  /// 写入朗读路由模式并置"已选择"（RQ-513 开局两步选择的落库点）。
+  ///
+  /// 返回实际落库的模式 id；桥不可用返回 null（调用方据此提示"未能保存"）。
+  static Future<String?> setRouteMode(String modeId) async {
+    try {
+      return await _channel
+          .invokeMethod<String>('setRouteMode', {'mode': modeId});
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
 }
+
+
 
 /// 本地模式适用性判定结果（RQ-515）。
 class LocalModeVerdict {
@@ -94,4 +128,16 @@ class LocalModeVerdict {
 
   /// 物理核数（诊断用）
   final int cores;
+
+}
+
+/// 开局模式状态（RQ-513）：模式 + 是否已选择过。
+class RouteModeState {
+  const RouteModeState({required this.mode, required this.chosen});
+
+  /// 四种取值：only_online / only_local / prefer_online / prefer_local
+  final String mode;
+
+  /// false ⇒ 首启，必须先引导用户选择
+  final bool chosen;
 }

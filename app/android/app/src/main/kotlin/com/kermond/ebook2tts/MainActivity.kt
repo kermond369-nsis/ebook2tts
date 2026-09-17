@@ -46,6 +46,20 @@ class MainActivity : FlutterActivity() {
                     }
                     // RQ-515 / IM-546：本地模式适用性判定（只读；界面在用户选本地模式时按需弹警告）
                     "localModeVerdict" -> result.success(localModeVerdict())
+                    // RQ-513：开局朗读路由模式（读：模式 + 是否已选择；写：模式 + 置已选择）
+                    "getRouteMode" -> result.success(
+                        mapOf(
+                            "mode" to com.kermond.ebook2tts.engine.ConfigStore.routeMode().id,
+                            "chosen" to com.kermond.ebook2tts.engine.ConfigStore.routeChosen(),
+                        )
+                    )
+                    "setRouteMode" -> {
+                        val id = call.argument<String>("mode").orEmpty()
+                        val mode = com.kermond.ebook2tts.core.RouteMode.parse(id)
+                        com.kermond.ebook2tts.engine.ConfigStore.setRouteMode(mode)
+                        com.kermond.ebook2tts.engine.ConfigStore.setRouteChosen(true)
+                        result.success(mode.id)
+                    }
                     "stopSample" -> {
                         diagTts?.stop()
                         result.success(null)
