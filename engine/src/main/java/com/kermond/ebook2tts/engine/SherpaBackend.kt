@@ -7,6 +7,7 @@ import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import com.kermond.ebook2tts.core.ModelSpec
+import com.kermond.ebook2tts.core.SynthPcmCache
 import com.kermond.ebook2tts.core.PcmChunker
 import com.kermond.ebook2tts.core.ProcessNames
 import java.io.File
@@ -24,6 +25,9 @@ class SherpaBackend(
     private val spec: ModelSpec,
     private val numThreads: Int = 2,
 ) {
+
+    /** P7 第二批 / ADR-019：合成结果缓存（命中即跳过 native 调用） */
+    private val cache = SynthPcmCache()
     companion object {
         private const val TAG = "SherpaBackend"
     }
@@ -106,6 +110,7 @@ class SherpaBackend(
             val engine = OfflineTts(config = config)
             tts = engine
             sampleRate = engine.sampleRate()
+            cache.clear() // 模型（重）加载后旧缓存一律失效（ADR-019 §16.2）
             Log.i(TAG, "loaded sr=$sampleRate speakers=${engine.numSpeakers()} threads=$numThreads")  // P7: 打印实际生效线程数（原为 ConfigStore 值，与覆盖钩子不符）
         } catch (t: Throwable) {
             loadError = t.message ?: t.toString()
@@ -157,8 +162,18 @@ class SherpaBackend(
         return stopped
     }
 
-    fun generatePcm(text: String, speakerId: Int, speed: Float): ByteArray =
-        NativeGate.withLock { generatePcmLocked(text, speakerId, speed) }
+    fun generatePcm(text: String, speakerId: Int, speed: Float): ByteArray {
+        // P7 第二批（ADR-019）：先查缓存 —— 命中则跳过 native 调用（**不改变**外部行为）
+        val key = SynthPcmCache.keyFor(spec.id, speakerId, speed, text)
+        cache.get(key)?.let {
+            Log.i(TAG, "CACHE|hit|model=${spec.id}|spk=$speakerId|bytes=${it.size}")
+            return it
+        }
+        Log.i(TAG, "CACHE|miss|model=${spec.id}|spk=$speakerId|chars=${text.length}")
+        val pcm = NativeGate.withLock { generatePcmLocked(text, speakerId, speed) }
+        cache.put(key, pcm)
+        return pcm
+    }
 
     private fun generatePcmLocked(text: String, speakerId: Int, speed: Float): ByteArray {
         val engine = tts ?: return ByteArray(0)
