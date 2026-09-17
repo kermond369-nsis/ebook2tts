@@ -58,7 +58,7 @@ class _ModeSetupPageState extends State<ModeSetupPage> {
       builder: (ctx) => AlertDialog(
         title: const Text('性能不足，可能延迟极大'),
         content: Text(
-          '当前设备（${v.soc.isEmpty ? '未知型号' : v.soc}，$v.cores 核）'
+          '当前设备（${v.soc.isEmpty ? '未知型号' : v.soc}，${v.cores} 核）'
           '在本地模式下的合成速度可能明显慢于实时播放。\n\n'
           '${v.reason.isEmpty ? '' : '判定依据：${v.reason}\n\n'}'
           '你仍可选择本地模式（不预置模型、可随时在设置中更改）。',
