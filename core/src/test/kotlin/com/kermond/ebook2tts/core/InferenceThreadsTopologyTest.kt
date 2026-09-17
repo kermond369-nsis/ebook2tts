@@ -61,4 +61,14 @@ class InferenceThreadsTopologyTest {
         assertEquals(0, InferenceThreads.perfCoreCount(emptyList()))
         assertEquals(0, InferenceThreads.perfCoreCount(listOf(0, 0, 0)))
     }
+    @Test
+    fun `cpu_capacity 口径同样可分簇（典型 1024-4x 与 400-4x）`() {
+        // 现代 big.LITTLE 常见：大核 capacity≈1024，小核≈400
+        val caps = List(4) { 1024 } + List(4) { 400 }
+        assertEquals(4, InferenceThreads.perfCoreCount(caps))
+        assertEquals(InferenceThreads.AUTO_HETERO, InferenceThreads.resolve(8, 0, InferenceThreads.perfCoreCount(caps)))
+        // 同构（罕见）：全核同 capacity ⇒ cores-1
+        assertEquals(6, InferenceThreads.perfCoreCount(List(6) { 1024 }))
+        assertEquals(5, InferenceThreads.resolve(6, 0, 6))
+    }
 }
