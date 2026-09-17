@@ -63,11 +63,22 @@ object ConfigStore {
     private val perfCores: Int by lazy {
         runCatching {
             val n = Runtime.getRuntime().availableProcessors()
+            // P7 第二批（IM-547）：**优先 `cpu_capacity`**（内核标定的相对算力，不受 DVFS/温控影响），
+            // 读不到再退回 `cpufreq/cpuinfo_max_freq`（部分内核/定制 ROM 无 capacity 节点）。
+            val caps = (0 until n).mapNotNull { i ->
+                java.io.File("/sys/devices/system/cpu/cpu$i/cpu_capacity")
+                    .takeIf { it.canRead() }?.readText()?.trim()?.toIntOrNull()
+            }
+            if (caps.any { it > 0 }) {
+                Log.i(TAG, "PERF_CORES|source=capacity|values=$caps")
+                return@runCatching InferenceThreads.perfCoreCount(caps)
+            }
             val freqs = (0 until n).mapNotNull { i ->
                 java.io.File("/sys/devices/system/cpu/cpu$i/cpufreq/cpuinfo_max_freq")
                     .takeIf { it.canRead() }
                     ?.readText()?.trim()?.toIntOrNull()
             }
+            Log.i(TAG, "PERF_CORES|source=cpufreq|values=$freqs")
             InferenceThreads.perfCoreCount(freqs)
         }.getOrDefault(0)
     }
