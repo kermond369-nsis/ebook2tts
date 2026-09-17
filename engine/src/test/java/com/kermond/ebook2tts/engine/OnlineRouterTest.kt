@@ -1,6 +1,7 @@
 package com.kermond.ebook2tts.engine
 
 import com.kermond.ebook2tts.core.OnlineSettings
+import com.kermond.ebook2tts.core.RouteMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -24,6 +25,8 @@ class OnlineRouterTest {
         tokenPlanAccepted: Boolean = false,
         allowMobileData: Boolean = false,
         onCellular: Boolean = false,
+        routeMode: RouteMode = RouteMode.DEFAULT,
+        localModelAvailable: Boolean = true,
     ): BackendChoice = OnlineSelector.select(
         onlineEnabled = onlineEnabled,
         apiKey = apiKey,
@@ -35,6 +38,8 @@ class OnlineRouterTest {
         tokenPlanAccepted = tokenPlanAccepted,
         allowMobileData = allowMobileData,
         onCellular = onCellular,
+        routeMode = routeMode,
+        localModelAvailable = localModelAvailable,
     )
 
     @Test
@@ -97,5 +102,46 @@ class OnlineRouterTest {
         assertEquals(FallbackAction.SWITCH_LOCAL, OnlineFallback.decide(true, 24000, 24000))
         // 已有音频但采样率不一致 → 起播后无法换源，本请求保持在线（降级链兜底）
         assertEquals(FallbackAction.STAY_ONLINE, OnlineFallback.decide(true, 22050, 24000))
+    }
+
+    // ───────── RQ-513 路由模式（P7 第二批）─────────
+
+    @Test
+    fun only_local_never_touches_online() {
+        // 在线侧全部就绪（开关开 + 合法密钥）也不得走在线：仅本地 = 不触网
+        val c = select(routeMode = RouteMode.ONLY_LOCAL, tokenPlanAccepted = true)
+        assertEquals(BackendChoice.Local("only_local"), c)
+    }
+
+    @Test
+    fun prefer_local_uses_local_when_model_available() {
+        assertEquals(BackendChoice.Local("prefer_local"), select(routeMode = RouteMode.PREFER_LOCAL))
+    }
+
+    @Test
+    fun prefer_local_falls_back_to_online_when_local_unavailable() {
+        val c = select(routeMode = RouteMode.PREFER_LOCAL, localModelAvailable = false)
+        assertTrue("本地不可用 ⇒ 回落在线", c is BackendChoice.Online)
+    }
+
+    @Test
+    fun prefer_online_keeps_legacy_behavior() {
+        assertTrue("缺省（未设置）必须与旧行为一致", select() is BackendChoice.Online)
+        assertTrue(select(routeMode = RouteMode.PREFER_ONLINE) is BackendChoice.Online)
+        assertEquals(BackendChoice.Local("online_disabled"), select(onlineEnabled = false, routeMode = RouteMode.PREFER_ONLINE))
+    }
+
+    @Test
+    fun only_online_blocks_instead_of_silent_local_fallback() {
+        // 在线不可用（密钥为空）⇒ 硬阻断并携带原始原因，供上层如实报错
+        val blocked = select(routeMode = RouteMode.ONLY_ONLINE, apiKey = "   ")
+        assertEquals("only_online_blocked:no_key", (blocked as BackendChoice.Local).reason)
+        assertEquals("no_key", OnlineSelector.hardBlockReason(blocked))
+        // 在线可用 ⇒ 正常在线且非阻断
+        val ok = select(routeMode = RouteMode.ONLY_ONLINE)
+        assertTrue(ok is BackendChoice.Online)
+        assertNull(OnlineSelector.hardBlockReason(ok))
+        // 开关关闭同样是阻断（而非回落本地）
+        assertEquals("online_disabled", OnlineSelector.hardBlockReason(select(onlineEnabled = false, routeMode = RouteMode.ONLY_ONLINE)))
     }
 }
