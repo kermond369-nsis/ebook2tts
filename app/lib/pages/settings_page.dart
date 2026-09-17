@@ -37,7 +37,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<void> _openModeSetup(BuildContext ctx) async {
     await Navigator.of(ctx).push(
-      MaterialPageRoute<void>(builder: (_) => ModeSetupPage(onDone: () async {})),
+      MaterialPageRoute<void>(
+        // 真机验证暴露：保存成功后必须**弹栈返回**（此前 onDone 为空实现 ⇒ 页面卡在模式页无法返回）
+        builder: (routeCtx) => ModeSetupPage(
+          onDone: () async {
+            if (routeCtx.mounted) Navigator.of(routeCtx).pop();
+          },
+        ),
+      ),
     );
     // 返回后重建 ⇒ FutureBuilder 重新读取（无需额外状态）
   }
