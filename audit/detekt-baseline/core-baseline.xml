@@ -1,0 +1,73 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:NumberReader.kt$NumberReader$i &lt; text.length &amp;&amp; text[i] == '.' &amp;&amp; i + 1 &lt; text.length &amp;&amp; text[i + 1].isDigit()</ID>
+    <ID>ComplexCondition:OnlineRole.kt$OnlineSegmentPlanner$!roleEnabled || roleName.isNullOrBlank() || design == null || !design.hasDesign</ID>
+    <ID>ComplexCondition:TextAnalyzer.kt$TextAnalyzer$c == '，' || c == '、' || c == '；' || c == '：' || c == ','</ID>
+    <ID>CyclomaticComplexMethod:LocalModeAdvisor.kt$LocalModeAdvisor$fun judge(socModel: String, manufacturer: String = "", cores: Int = 0): Verdict</ID>
+    <ID>FunctionOnlyReturningConstant:OnlineRole.kt$RoleRefinePrompt$fun system(): String</ID>
+    <ID>LongParameterList:OnlineRole.kt$OnlineSegmentPlanner$( baseModel: String, baseVoice: String, baseStyle: String, roleEnabled: Boolean, roleName: String?, design: RoleVoiceDesign?, )</ID>
+    <ID>LoopWithTooManyJumpStatements:TextAnalyzer.kt$TextAnalyzer$for</ID>
+    <ID>MagicNumber:NumberReader.kt$NumberReader$10</ID>
+    <ID>MagicNumber:NumberReader.kt$NumberReader$100</ID>
+    <ID>MagicNumber:NumberReader.kt$NumberReader$1000</ID>
+    <ID>MagicNumber:NumberReader.kt$NumberReader$10L</ID>
+    <ID>MagicNumber:NumberReader.kt$NumberReader$10_000</ID>
+    <ID>MagicNumber:NumberReader.kt$NumberReader$20</ID>
+    <ID>MagicNumber:OnlineRole.kt$RoleRefinePrompt$12</ID>
+    <ID>MagicNumber:PcmChunker.kt$PcmChunker$0.5f</ID>
+    <ID>MagicNumber:PcmChunker.kt$PcmChunker$0xff</ID>
+    <ID>MagicNumber:PcmChunker.kt$PcmChunker$1000</ID>
+    <ID>MagicNumber:PcmChunker.kt$PcmChunker$32767</ID>
+    <ID>MagicNumber:PcmChunker.kt$PcmChunker$32767f</ID>
+    <ID>MagicNumber:PcmChunker.kt$PcmChunker$32768</ID>
+    <ID>MagicNumber:PcmChunker.kt$PcmChunker$4</ID>
+    <ID>MagicNumber:PcmChunker.kt$PcmChunker$40</ID>
+    <ID>MagicNumber:PcmChunker.kt$PcmChunker$400</ID>
+    <ID>MagicNumber:PcmChunker.kt$PcmChunker$512</ID>
+    <ID>MagicNumber:PcmChunker.kt$PcmChunker$65536</ID>
+    <ID>MagicNumber:PcmChunker.kt$PcmChunker$8</ID>
+    <ID>MagicNumber:RoleAssigner.kt$RoleAssigner$240_000L</ID>
+    <ID>MagicNumber:SpeedMapper.kt$SpeedMapper$100f</ID>
+    <ID>MagicNumber:SynthPcmCache.kt$SynthPcmCache$0.75f</ID>
+    <ID>MagicNumber:SynthPcmCache.kt$SynthPcmCache$16</ID>
+    <ID>MagicNumber:TextAnalyzer.kt$TextAnalyzer$14</ID>
+    <ID>MagicNumber:TextAnalyzer.kt$TextAnalyzer$16</ID>
+    <ID>MagicNumber:TextAnalyzer.kt$TextAnalyzer$6</ID>
+    <ID>MagicNumber:TextClean.kt$TextClean$0x3400</ID>
+    <ID>MagicNumber:TextClean.kt$TextClean$0x4DBF</ID>
+    <ID>MagicNumber:TextClean.kt$TextClean$0x4E00</ID>
+    <ID>MagicNumber:TextClean.kt$TextClean$0x9FFF</ID>
+    <ID>MagicNumber:TextClean.kt$TextClean$11</ID>
+    <ID>MagicNumber:TextClean.kt$TextClean$12</ID>
+    <ID>MagicNumber:TextClean.kt$TextClean$14</ID>
+    <ID>MagicNumber:TextClean.kt$TextClean$24</ID>
+    <ID>MagicNumber:TextClean.kt$TextClean$31</ID>
+    <ID>MagicNumber:TextClean.kt$TextClean$8</ID>
+    <ID>MagicNumber:VoiceCatalog.kt$VoiceCatalog$102</ID>
+    <ID>MagicNumber:VoiceCatalog.kt$VoiceCatalog$3</ID>
+    <ID>MagicNumber:VoiceCatalog.kt$VoiceCatalog$4</ID>
+    <ID>MagicNumber:VoiceCatalog.kt$VoiceCatalog$57</ID>
+    <ID>MagicNumber:VoiceCatalog.kt$VoiceCatalog$58</ID>
+    <ID>MagicNumber:VoiceCatalog.kt$VoiceCatalog$64</ID>
+    <ID>NestedBlockDepth:NumberReader.kt$NumberReader$fun speakDigits(text: String): String</ID>
+    <ID>ReturnCount:InferenceThreads.kt$InferenceThreads$fun resolve(cores: Int, stored: Int = 0, perfCores: Int = 0): Int</ID>
+    <ID>ReturnCount:LocalModeAdvisor.kt$LocalModeAdvisor$fun judge(socModel: String, manufacturer: String = "", cores: Int = 0): Verdict</ID>
+    <ID>ReturnCount:MirrorResolver.kt$MirrorResolver$fun customUrl(spec: ModelSpec, customBase: String?): String?</ID>
+    <ID>ReturnCount:MirrorResolver.kt$MirrorResolver$fun withCustomMirror(spec: ModelSpec, customBase: String?): ModelSpec</ID>
+    <ID>ReturnCount:ModelLayout.kt$ModelLayout$fun resolveRoot(dir: File, modelName: String): File?</ID>
+    <ID>ReturnCount:NumberReader.kt$NumberReader$fun readNumber(n: Long): String</ID>
+    <ID>ReturnCount:OnlineSettings.kt$OnlineSettings$fun keyMismatchWarning(keyKind: String, apiKey: String): String?</ID>
+    <ID>ReturnCount:OnlineVoiceMap.kt$OnlineVoiceMap$fun pick( requested: String?, pool: List&lt;VoiceInfo&gt;, fallbackGender: VoiceGender = VoiceGender.UNKNOWN, ): String</ID>
+    <ID>ReturnCount:ProcessNames.kt$PathSafety$fun hasUnsafeZipEntryName(name: String): Boolean</ID>
+    <ID>ReturnCount:ProcessNames.kt$ProcessNames$fun parseCmdline(cmdlineBytes: ByteArray?): String</ID>
+    <ID>ReturnCount:RoleAssigner.kt$RoleAssigner$private fun assignDialogue(segment: TextSegment, nowMs: Long): VoiceInfo</ID>
+    <ID>ReturnCount:TextAnalyzer.kt$TextAnalyzer$fun analyze(raw: String): List&lt;TextSegment&gt;</ID>
+    <ID>ReturnCount:TextAnalyzer.kt$TextAnalyzer$private fun classify(sentence: String): TextSegment</ID>
+    <ID>ReturnCount:TextClean.kt$TextClean$fun chapterSpeakText(text: String): String</ID>
+    <ID>ReturnCount:TextClean.kt$TextClean$fun isJunkLine(text: String): Boolean</ID>
+    <ID>ReturnCount:VoiceCatalog.kt$VoiceCatalog$fun defaultNarrator(pool: List&lt;VoiceInfo&gt;): VoiceInfo</ID>
+    <ID>ReturnCount:VoiceCatalog.kt$VoiceCatalog$fun resolve(pool: List&lt;VoiceInfo&gt;, id: String?): VoiceInfo</ID>
+  </CurrentIssues>
+</SmellBaseline>
