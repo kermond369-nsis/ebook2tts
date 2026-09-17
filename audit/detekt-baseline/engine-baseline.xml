@@ -1,0 +1,136 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:SynthesisCoordinator.kt$SynthesisCoordinator$curBackend != null &amp;&amp; curBackend.isReady() &amp;&amp; loadedModelId == curModelId0 &amp;&amp; loadedThreads == curThreads0</ID>
+    <ID>CyclomaticComplexMethod:HttpDownloader.kt$HttpDownloader$fun download( url: String, part: File, expectedBytes: Long, onProgress: (Long, Long) -&gt; Unit, isCancelled: () -&gt; Boolean, )</ID>
+    <ID>CyclomaticComplexMethod:OnlineBackend.kt$OnlineBackend$private fun runStream( request: OnlineRequest, text: String, onPcm: (ByteArray) -&gt; Boolean, isCancelled: () -&gt; Boolean, callRef: AtomicReference&lt;Call?&gt;, ): OnlineOutcome</ID>
+    <ID>CyclomaticComplexMethod:PreviewPlayer.kt$PreviewPlayer$fun preview( text: String, voiceId: String?, speed: Float, listener: Listener, )</ID>
+    <ID>CyclomaticComplexMethod:PreviewPlayer.kt$PreviewPlayer$private fun tryOnlinePreview( cleaned: String, listener: Listener, speed: Float, voiceHint: String?, ): Boolean</ID>
+    <ID>CyclomaticComplexMethod:SynthesisCoordinator.kt$SynthesisCoordinator$fun synthesize( rawText: String?, speechRateAosp: Int, explicitVoiceName: String?, callback: SynthesisCallback, ): SynthResult</ID>
+    <ID>CyclomaticComplexMethod:SynthesisCoordinator.kt$SynthesisCoordinator$private fun reloadInternal()</ID>
+    <ID>InstanceOfCheckForException:OnlineBackend.kt$OnlineBackend$t is InterruptedIOException</ID>
+    <ID>LargeClass:SynthesisCoordinator.kt$SynthesisCoordinator</ID>
+    <ID>LongMethod:ModelDownloader.kt$ModelDownloader$fun downloadAndInstall(spec: ModelSpec, progress: Progress)</ID>
+    <ID>LongMethod:OnlineBackend.kt$OnlineBackend$private fun runStream( request: OnlineRequest, text: String, onPcm: (ByteArray) -&gt; Boolean, isCancelled: () -&gt; Boolean, callRef: AtomicReference&lt;Call?&gt;, ): OnlineOutcome</ID>
+    <ID>LongMethod:PreviewPlayer.kt$PreviewPlayer$fun preview( text: String, voiceId: String?, speed: Float, listener: Listener, )</ID>
+    <ID>LongMethod:PreviewPlayer.kt$PreviewPlayer$private fun tryOnlinePreview( cleaned: String, listener: Listener, speed: Float, voiceHint: String?, ): Boolean</ID>
+    <ID>LongMethod:SherpaBackend.kt$SherpaBackend$private fun loadLocked()</ID>
+    <ID>LongMethod:SynthesisCoordinator.kt$SynthesisCoordinator$fun synthesize( rawText: String?, speechRateAosp: Int, explicitVoiceName: String?, callback: SynthesisCallback, ): SynthResult</ID>
+    <ID>LongMethod:SynthesisCoordinator.kt$SynthesisCoordinator$private fun reloadInternal()</ID>
+    <ID>LongParameterList:OnlineRoleRefiner.kt$OnlineRoleRefiner$( base: String, key: String, model: String, name: String, excerpt: String, known: List&lt;String&gt;, )</ID>
+    <ID>LongParameterList:OnlineRouter.kt$OnlineSelector$( onlineEnabled: Boolean, apiKey: KeyText, keyKind: String, baseUrl: String, model: String, voice: String, style: String, tokenPlanAccepted: Boolean, allowMobileData: Boolean, onCellular: Boolean, roleEnabled: Boolean = false, roles: Map&lt;String, RoleVoiceDesign&gt; = emptyMap(), )</ID>
+    <ID>LoopWithTooManyJumpStatements:ManifestRepository.kt$ManifestRepository.Companion$for</ID>
+    <ID>LoopWithTooManyJumpStatements:OnlineBackend.kt$OnlineBackend$while</ID>
+    <ID>LoopWithTooManyJumpStatements:PreviewPlayer.kt$PreviewPlayer$for</ID>
+    <ID>LoopWithTooManyJumpStatements:SynthesisCoordinator.kt$SynthesisCoordinator$for</ID>
+    <ID>LoopWithTooManyJumpStatements:SynthesisCoordinator.kt$SynthesisCoordinator$while</ID>
+    <ID>MagicNumber:ConfigStore.kt$ConfigStore$0.5f</ID>
+    <ID>MagicNumber:DownloadService.kt$DownloadService$26</ID>
+    <ID>MagicNumber:DownloadService.kt$DownloadService$29</ID>
+    <ID>MagicNumber:DownloadService.kt$DownloadService.&lt;no name provided&gt;$100</ID>
+    <ID>MagicNumber:EngineApp.kt$EngineApp$28</ID>
+    <ID>MagicNumber:EngineApp.kt$EngineApp.Companion$28</ID>
+    <ID>MagicNumber:HttpDownloader.kt$HttpDownloader$1024</ID>
+    <ID>MagicNumber:HttpDownloader.kt$HttpDownloader$16</ID>
+    <ID>MagicNumber:HttpDownloader.kt$HttpDownloader$1_000_000.0</ID>
+    <ID>MagicNumber:HttpDownloader.kt$HttpDownloader$206</ID>
+    <ID>MagicNumber:HttpDownloader.kt$HttpDownloader$3</ID>
+    <ID>MagicNumber:HttpDownloader.kt$HttpDownloader$64</ID>
+    <ID>MagicNumber:HttpDownloader.kt$HttpDownloader.Companion$30</ID>
+    <ID>MagicNumber:HttpDownloader.kt$HttpDownloader.Companion$60</ID>
+    <ID>MagicNumber:ModelDownloader.kt$ModelDownloader$1024</ID>
+    <ID>MagicNumber:ModelDownloader.kt$ModelDownloader$1_000_000</ID>
+    <ID>MagicNumber:ModelDownloader.kt$ModelDownloader$64</ID>
+    <ID>MagicNumber:OnlineBackend.kt$OnlineBackend$200</ID>
+    <ID>MagicNumber:OnlineBackend.kt$OnlineBackend$401</ID>
+    <ID>MagicNumber:OnlineBackend.kt$OnlineBackend$403</ID>
+    <ID>MagicNumber:OnlineBackend.kt$OnlineBackend$429</ID>
+    <ID>MagicNumber:OnlineBackend.kt$OnlineBackend.Companion$15</ID>
+    <ID>MagicNumber:OnlineBackend.kt$OnlineBackend.Companion$30</ID>
+    <ID>MagicNumber:OnlineBackend.kt$OnlineBackend.Companion$60</ID>
+    <ID>MagicNumber:OnlineRoleRefiner.kt$OnlineRoleRefiner$0.3</ID>
+    <ID>MagicNumber:OnlineRoleRefiner.kt$OnlineRoleRefiner$800</ID>
+    <ID>MagicNumber:OnlineRoleRefiner.kt$OnlineRoleRefiner.Companion$15</ID>
+    <ID>MagicNumber:OnlineRoleRefiner.kt$OnlineRoleRefiner.Companion$30</ID>
+    <ID>MagicNumber:OnlineRoleRefiner.kt$OnlineRoleRefiner.Companion$60</ID>
+    <ID>MagicNumber:PcmSpeedStretcher.kt$PcmSpeedStretcher.Companion$0.001f</ID>
+    <ID>MagicNumber:PcmSpeedStretcher.kt$PcmSpeedStretcher.Companion$0.01f</ID>
+    <ID>MagicNumber:PreviewPlayer.kt$PreviewPlayer$0.5f</ID>
+    <ID>MagicNumber:PreviewPlayer.kt$PreviewPlayer$100</ID>
+    <ID>MagicNumber:PreviewPlayer.kt$PreviewPlayer$12</ID>
+    <ID>MagicNumber:PreviewPlayer.kt$PreviewPlayer$160</ID>
+    <ID>MagicNumber:PreviewPlayer.kt$PreviewPlayer$23</ID>
+    <ID>MagicNumber:PreviewPlayer.kt$PreviewPlayer$26</ID>
+    <ID>MagicNumber:PreviewPlayer.kt$PreviewPlayer$4</ID>
+    <ID>MagicNumber:PreviewPlayer.kt$PreviewPlayer$4096</ID>
+    <ID>MagicNumber:PreviewService.kt$PreviewService.&lt;no name provided&gt;$25</ID>
+    <ID>MagicNumber:SafeExtractor.kt$SafeExtractor$1024</ID>
+    <ID>MagicNumber:SafeExtractor.kt$SafeExtractor$64</ID>
+    <ID>MagicNumber:SherpaBackend.kt$SherpaBackend$24000</ID>
+    <ID>MagicNumber:SynthesisCoordinator.kt$SynthesisCoordinator$1000L</ID>
+    <ID>MagicNumber:SynthesisCoordinator.kt$SynthesisCoordinator$120</ID>
+    <ID>MagicNumber:SynthesisCoordinator.kt$SynthesisCoordinator$150</ID>
+    <ID>MagicNumber:SynthesisCoordinator.kt$SynthesisCoordinator$160</ID>
+    <ID>MagicNumber:SynthesisCoordinator.kt$SynthesisCoordinator$1_000_000L</ID>
+    <ID>MagicNumber:SynthesisCoordinator.kt$SynthesisCoordinator$200</ID>
+    <ID>MagicNumber:SynthesisCoordinator.kt$SynthesisCoordinator$24000</ID>
+    <ID>MagicNumber:SynthesisCoordinator.kt$SynthesisCoordinator$2_000L</ID>
+    <ID>MagicNumber:SynthesisCoordinator.kt$SynthesisCoordinator$3</ID>
+    <ID>MagicNumber:SynthesisCoordinator.kt$SynthesisCoordinator$400</ID>
+    <ID>MagicNumber:SynthesisCoordinator.kt$SynthesisCoordinator$50_000_000L</ID>
+    <ID>MagicNumber:SynthesisCoordinator.kt$SynthesisCoordinator$8</ID>
+    <ID>MaxLineLength:ModelDownloader.kt$ModelDownloader$Log.w(TAG, "LAYOUT_REJECT|${s.id}|model=${s.files.modelName}|staging=${staging.list()?.joinToString(",")}")</ID>
+    <ID>MaxLineLength:PreviewPlayer.kt$PreviewPlayer$Log.i(TAG, "PREVIEW|synth|chars=${spoken.length}|bytes=${pcm.size}|ms=${System.currentTimeMillis() - tSynth}")</ID>
+    <ID>MaxLineLength:PreviewPlayer.kt$PreviewPlayer$Log.i(TAG, "PREVIEW|write|bytes=$i/${pcm.size}|ms=${System.currentTimeMillis() - tWrite}|playing=${playing.get()}")</ID>
+    <ID>MaxLineLength:PreviewPlayer.kt$PreviewPlayer$val</ID>
+    <ID>MaxLineLength:SherpaBackend.kt$SherpaBackend$Log.i(TAG, "loaded sr=$sampleRate speakers=${engine.numSpeakers()} threads=$numThreads")</ID>
+    <ID>MaxLineLength:SynthesisCoordinator.kt$SynthesisCoordinator$if (backend == null) { Log.i(TAG, "RELEASE|skipped|reason=already_released|$reason"); return@withLock false }</ID>
+    <ID>NestedBlockDepth:HttpDownloader.kt$HttpDownloader$fun download( url: String, part: File, expectedBytes: Long, onProgress: (Long, Long) -&gt; Unit, isCancelled: () -&gt; Boolean, )</ID>
+    <ID>NestedBlockDepth:OnlineBackend.kt$OnlineBackend$private fun runStream( request: OnlineRequest, text: String, onPcm: (ByteArray) -&gt; Boolean, isCancelled: () -&gt; Boolean, callRef: AtomicReference&lt;Call?&gt;, ): OnlineOutcome</ID>
+    <ID>NestedBlockDepth:SafeExtractor.kt$SafeExtractor$private fun extractTarBz2(input: InputStream, stagingDir: File, limit: Long)</ID>
+    <ID>NestedBlockDepth:SafeExtractor.kt$SafeExtractor$private fun extractZip(input: InputStream, stagingDir: File, limit: Long)</ID>
+    <ID>NestedBlockDepth:SynthesisCoordinator.kt$SynthesisCoordinator$fun synthesize( rawText: String?, speechRateAosp: Int, explicitVoiceName: String?, callback: SynthesisCallback, ): SynthResult</ID>
+    <ID>ReturnCount:HttpDownloader.kt$HttpDownloader$fun pickFastest(sources: List&lt;String&gt;, isCancelled: () -&gt; Boolean = { false }): String?</ID>
+    <ID>ReturnCount:ManifestRepository.kt$ManifestRepository$fun load(force: Boolean = false): ModelManifest</ID>
+    <ID>ReturnCount:MigrationHelper.kt$MigrationHelper$private fun validateModelDir(dir: File, spec: ModelSpec): Boolean</ID>
+    <ID>ReturnCount:ModelDownloader.kt$ModelDownloader$fun downloadAndInstall(spec: ModelSpec, progress: Progress)</ID>
+    <ID>ReturnCount:ModelDownloader.kt$ModelDownloader$private fun downloadWithSources(spec: ModelSpec, part: File, progress: Progress): Boolean</ID>
+    <ID>ReturnCount:OnlineBackend.kt$OnlineBackend$fun synthesize( request: OnlineRequest, text: String, onPcm: (ByteArray) -&gt; Boolean, isCancelled: () -&gt; Boolean, ): OnlineOutcome</ID>
+    <ID>ReturnCount:OnlineBackend.kt$OnlineBackend$private fun runStream( request: OnlineRequest, text: String, onPcm: (ByteArray) -&gt; Boolean, isCancelled: () -&gt; Boolean, callRef: AtomicReference&lt;Call?&gt;, ): OnlineOutcome</ID>
+    <ID>ReturnCount:OnlineBackend.kt$OnlineBackendHolder$fun get(): OnlineBackend</ID>
+    <ID>ReturnCount:OnlineRoleRefiner.kt$OnlineRoleRefiner$fun refinePending(): Result</ID>
+    <ID>ReturnCount:OnlineRouter.kt$OnlineSelector$fun select( onlineEnabled: Boolean, apiKey: KeyText, keyKind: String, baseUrl: String, model: String, voice: String, style: String, tokenPlanAccepted: Boolean, allowMobileData: Boolean, onCellular: Boolean, roleEnabled: Boolean = false, roles: Map&lt;String, RoleVoiceDesign&gt; = emptyMap(), ): BackendChoice</ID>
+    <ID>ReturnCount:PreviewPlayer.kt$PreviewPlayer$private fun tryOnlinePreview( cleaned: String, listener: Listener, speed: Float, voiceHint: String?, ): Boolean</ID>
+    <ID>ReturnCount:RoleRegistry.kt$RoleRegistry$fun put(profile: RoleVoiceDesign): Boolean</ID>
+    <ID>ReturnCount:SherpaBackend.kt$SherpaBackend$private fun generatePcmLocked(text: String, speakerId: Int, speed: Float): ByteArray</ID>
+    <ID>ReturnCount:SherpaBackend.kt$SherpaBackend$private fun generateStreamingLocked( text: String, speakerId: Int, speed: Float, onPcm: (FloatArray) -&gt; Boolean, ): Boolean</ID>
+    <ID>ReturnCount:SynthesisCoordinator.kt$SynthesisCoordinator$fun enqueue(pcm: ByteArray)</ID>
+    <ID>ReturnCount:SynthesisCoordinator.kt$SynthesisCoordinator$fun pushBytes(pcm: ByteArray): Boolean</ID>
+    <ID>ReturnCount:SynthesisCoordinator.kt$SynthesisCoordinator$fun synthesize( rawText: String?, speechRateAosp: Int, explicitVoiceName: String?, callback: SynthesisCallback, ): SynthResult</ID>
+    <ID>ReturnCount:SynthesisCoordinator.kt$SynthesisCoordinator$private fun awaitBackend(isStopped: () -&gt; Boolean): SherpaBackend?</ID>
+    <ID>SpreadOperator:OnlineBackend.kt$OnlineBackend$(prev, *pcm)</ID>
+    <ID>ThrowsCount:HttpDownloader.kt$HttpDownloader$fun download( url: String, part: File, expectedBytes: Long, onProgress: (Long, Long) -&gt; Unit, isCancelled: () -&gt; Boolean, )</ID>
+    <ID>ThrowsCount:SafeExtractor.kt$SafeExtractor$fun extract( input: InputStream, stagingDir: File, archiveName: String, maxExtractedBytes: Long, whitelist: Set&lt;String&gt;? = null, )</ID>
+    <ID>ThrowsCount:SafeExtractor.kt$SafeExtractor$private fun extractTarBz2(input: InputStream, stagingDir: File, limit: Long)</ID>
+    <ID>ThrowsCount:SafeExtractor.kt$SafeExtractor$private fun extractZip(input: InputStream, stagingDir: File, limit: Long)</ID>
+    <ID>TooGenericExceptionCaught:EngineApp.kt$EngineApp$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:HttpDownloader.kt$HttpDownloader$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:MigrationHelper.kt$MigrationHelper$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:ModelDownloader.kt$ModelDownloader$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:NetState.kt$NetState$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:OnlineBackend.kt$OnlineBackend$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:OnlineRoleRefiner.kt$OnlineRoleRefiner$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:PcmSpeedStretcher.kt$PcmSpeedStretcher$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:PreviewPlayer.kt$PreviewPlayer$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:SafeExtractor.kt$SafeExtractor$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:SherpaBackend.kt$SherpaBackend$t: Throwable</ID>
+    <ID>TooGenericExceptionCaught:SynthesisCoordinator.kt$SynthesisCoordinator$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SynthesisCoordinator.kt$SynthesisCoordinator$t: Throwable</ID>
+    <ID>TooManyFunctions:ConfigStore.kt$ConfigStore</ID>
+    <ID>TooManyFunctions:LocalTextToSpeechService.kt$LocalTextToSpeechService : TextToSpeechService</ID>
+    <ID>TooManyFunctions:ModelDownloader.kt$ModelDownloader</ID>
+    <ID>TooManyFunctions:SherpaBackend.kt$SherpaBackend</ID>
+    <ID>TooManyFunctions:SynthesisCoordinator.kt$SynthesisCoordinator</ID>
+  </CurrentIssues>
+</SmellBaseline>
