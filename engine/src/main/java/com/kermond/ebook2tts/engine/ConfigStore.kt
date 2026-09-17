@@ -111,6 +111,13 @@ object ConfigStore {
     fun setRouteMode(mode: RouteMode) {
         kv().encode("route.mode", mode.id)
     }
+
+    /** 开局模式是否已由用户选择过（RQ-513 首启流程）；未选 ⇒ 界面须先引导选择 */
+    fun routeChosen(): Boolean = kv().decodeBool("route.chosen", false)
+
+    fun setRouteChosen(chosen: Boolean) {
+        kv().encode("route.chosen", chosen)
+    }
     fun setOnlineEnabled(v: Boolean) {
         kv().encode("online.enabled", v)
     }

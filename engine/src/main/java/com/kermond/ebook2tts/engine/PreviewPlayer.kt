@@ -9,6 +9,7 @@ import android.media.AudioTrack
 import android.os.Build
 import android.util.Log
 import com.kermond.ebook2tts.core.ModelCatalog
+import com.kermond.ebook2tts.core.RouteMode
 import com.kermond.ebook2tts.core.OnlineSegmentPlanner
 import com.kermond.ebook2tts.core.OnlineSettings
 import com.kermond.ebook2tts.core.OnlineVoiceMap
@@ -159,7 +160,12 @@ class PreviewPlayer(private val context: Context) {
         speed: Float,
         voiceHint: String?,
     ): Boolean {
-        val choice = selectOnline(voiceHint) ?: return false
+        val choice = selectOnline(voiceHint)
+        if (lastOnlyOnlineBlock != null) {
+            Log.e(TAG, "ONLINE|only_online_blocked|preview_abort|reason=$lastOnlyOnlineBlock")
+            return false
+        }
+        if (choice == null) return false
         val request = choice.request
         Log.i(
             TAG,
@@ -275,7 +281,17 @@ class PreviewPlayer(private val context: Context) {
         return mapped
     }
 
+    /** RQ-513：上次「仅在线」硬阻断原因（非空 ⇒ 调用点须如实报错，不得静默走本地） */
+    @Volatile
+    private var lastOnlyOnlineBlock: String? = null
+
     private fun selectOnline(voiceHint: String?): BackendChoice.Online? {
+        // RQ-513 路由模式：仅本地 ⇒ 不触网
+        val routeMode = ConfigStore.routeMode()
+        if (routeMode == RouteMode.ONLY_LOCAL) {
+            Log.i(TAG, "ROUTE|only_local|skip_online")
+            return null
+        }
         if (!ConfigStore.onlineEnabled()) return null
         // 角色音色（RQ-507）：请求级一次性快照（试听同样适用）
         val roleEnabled = ConfigStore.roleVoiceEnabled()
@@ -296,10 +312,17 @@ class PreviewPlayer(private val context: Context) {
                 onCellular = NetState.onCellular(context),
                 roleEnabled = roleEnabled,
                 roles = roles,
+                routeMode = routeMode,
+                localModelAvailable = true,   // 同协调器：见 TODO-P7 ②c
             )
         ) {
             is BackendChoice.Online -> choice
             is BackendChoice.Local -> {
+                if (routeMode == RouteMode.ONLY_ONLINE) {
+                    lastOnlyOnlineBlock = OnlineSelector.hardBlockReason(choice) ?: choice.reason
+                    Log.e(TAG, "ONLINE|only_online_blocked|reason=${choice.reason}")
+                    return null
+                }
                 Log.i(TAG, "ONLINE|fallback=local|reason=${choice.reason}")
                 null
             }
