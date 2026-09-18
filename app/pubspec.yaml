@@ -2,7 +2,7 @@ name: ebook2tts
 description: "书声本地——离线电子书朗读 App（P3 Flutter 界面，界面与 :engine 同属一个 App）"
 publish_to: 'none'
 
-version: 0.2.0-alpha.1+1
+version: 1.0.0+1
 
 environment:
   sdk: ^3.13.3

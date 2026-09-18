@@ -4,4 +4,18 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- P7/A3 取证：**仅 debug 构建**存在。用 adb 广播触发"空闲释放"代码路径，
+         以在无法收到系统 trim 的 ROM 上验证 releaseIfIdle(ADR-019/RQ-513 相关的内存释放)。
+         运行在 :tts_service 进程 —— 协调器与 native 后端都在该进程内。 -->
+    <application>
+        <receiver
+            android:name=".DebugTriggers"
+            android:exported="true"
+            android:process=":tts_service">
+            <intent-filter>
+                <action android:name="com.kermond.ebook2tts.DEBUG_RELEASE_IDLE"/>
+            </intent-filter>
+        </receiver>
+    </application>
 </manifest>
