@@ -18,7 +18,12 @@ echo "::group::flutter build apk --release (arm64)"
 echo "::endgroup::"
 
 SRC="$APP/build/app/outputs/flutter-apk/app-release.apk"
-OUT="${1:-$APP/build/app/outputs/flutter-apk/app-release-arm64.apk}"
+# 输出路径统一解析到 app/ 下：允许传「相对 app/ 的路径」或绝对路径
+# （CI 传 build/app/outputs/...；本地可省略，默认同目录）
+OUT="${1:-build/app/outputs/flutter-apk/app-release-arm64.apk}"
+if [ "${OUT#/}" = "$OUT" ]; then
+  [ "${OUT#"$APP"/}" = "$OUT" ] && OUT="$APP/$OUT"
+fi
 test -f "$SRC"
 
 python3 - "$SRC" "$OUT" "$PROPS" <<'PY'
