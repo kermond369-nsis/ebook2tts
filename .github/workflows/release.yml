@@ -52,7 +52,7 @@ jobs:
           sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
-      - name:  Unit tests
+      - name: Unit tests
         run: |
           gradle :core:test --no-daemon --stacktrace
           gradle :engine:testDebugUnitTest --no-daemon --stacktrace
@@ -65,17 +65,54 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Build debug APK
+      # 正式包签名：密钥与口令经 **Repository Secrets** 注入（不再需要本地手工构建）。
+      # 缺 Secrets 时**不阻断**非 tag 构建；tag 构建若缺 Secrets 则显式失败（拒绝产出"伪正式包"）。
+      - name: Prepare signing (tags only)
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -e
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::error::tag 构建需要签名 Secrets（KEYSTORE_BASE64/KEYSTORE_PASSWORD/KEY_ALIAS/KEY_PASSWORD）"
+            exit 1
+          fi
+          KS="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KS"
+          cat > app/android/key.properties <<EOF
+          storeFile=$KS
+          storePassword=${KEYSTORE_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          keyPassword=${KEY_PASSWORD}
+          EOF
+          sed -i 's/^ *//' app/android/key.properties
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "keystore=${KS}" >> "$GITHUB_OUTPUT"
+
+      # tag ⇒ 正式签名包（arm64 单 ABI，含 ABI 收敛后处理）；非 tag ⇒ 既有 debug 包
+      - name: Build APK
         id: build
         working-directory: app
         run: |
           set -e
           flutter pub get
-          flutter build apk --debug
           SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
-          APK_SRC=build/app/outputs/flutter-apk/app-debug.apk
+          if [ "${{ steps.signing.outputs.available }}" = "true" ]; then
+            bash ../scripts/build-release-arm64.sh build/app/outputs/flutter-apk/app-release-arm64.apk
+            APK_SRC=build/app/outputs/flutter-apk/app-release-arm64.apk
+            APK="ebook2tts-local-${SHORT_SHA}-arm64-release.apk"
+          else
+            flutter build apk --debug
+            APK_SRC=build/app/outputs/flutter-apk/app-debug.apk
+            APK="ebook2tts-local-${SHORT_SHA}-debug.apk"
+          fi
           test -f "$APK_SRC"
-          APK="ebook2tts-local-${SHORT_SHA}-debug.apk"
           cp "$APK_SRC" "../$APK"
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "apk=${APK}" >> "$GITHUB_OUTPUT"
@@ -84,41 +121,31 @@ jobs:
       - name: Resolve release tag
         id: meta
         run: |
-          SHORT_SHA="${{ steps.build.outputs.short_sha }}"
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             TAG="${GITHUB_REF_NAME}"
           else
-            TAG="build-${SHORT_SHA}"
+            TAG="build-${{ steps.build.outputs.short_sha }}"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release (gh CLI)
+      - name: Publish release (gh CLI)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           TAG="${{ steps.meta.outputs.tag }}"
-          SHORT_SHA="${{ steps.build.outputs.short_sha }}"
           APK="${{ steps.build.outputs.apk }}"
           REPO="${{ github.repository }}"
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            TITLE="${GITHUB_REF_NAME}"
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            # 已存在的 Release：**只补/替换资产，绝不覆盖人工撰写的说明与标题**
+            gh release upload "$TAG" "$APK" --repo "$REPO" --clobber
           else
-            TITLE="build ${SHORT_SHA}"
-          fi
-          BODY="Automated debug APK for com.kermond.ebook2tts (0.2.0-alpha.1 rewrite).
+            BODY="Automated build for com.kermond.ebook2tts.
 
           - Commit: ${GITHUB_SHA}
-          - Abbreviated: ${SHORT_SHA}
           - Workflow: ${GITHUB_SERVER_URL}/${REPO}/actions/runs/${GITHUB_RUN_ID}"
-          if [ -n "${{ inputs.reason }}" ]; then
-            BODY="${BODY}
-          - Note: ${{ inputs.reason }}"
-          fi
-          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK" --repo "$REPO" --clobber
-            gh release edit "$TAG" --repo "$REPO" --title "$TITLE" --notes "$BODY"
-          else
-            gh release create "$TAG" "$APK" --repo "$REPO" --title "$TITLE" --notes "$BODY" --latest
+            if [ -n "${{ inputs.reason }}" ]; then BODY="${BODY}
+          - Note: ${{ inputs.reason }}"; fi
+            gh release create "$TAG" "$APK" --repo "$REPO" --title "$TAG" --notes "$BODY" --latest
           fi
           gh release view "$TAG" --repo "$REPO" --json name,tagName,url,assets
