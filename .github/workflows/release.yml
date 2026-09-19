@@ -1,8 +1,9 @@
 name: Release
 
 on:
+  # 仅 tag 触发发布（正式版）。main 推送不再触发本工作流 —— 避免每次合并都生成 build-* 噪音 Release
+  # （2026-09-19 甲方要求：发布页只保留 CI 产出的正式版；非 tag 的手动触发改为上传 workflow artifact）
   push:
-    branches: [main]
     tags:
       - "v*"
   workflow_dispatch:
@@ -128,7 +129,18 @@ jobs:
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
+      # 非 tag（手动触发）：产物作为 workflow artifact 留存，不创建 Release
+      - name: Upload APK artifact (non-tag)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ steps.build.outputs.short_sha }}
+          path: ${{ steps.build.outputs.apk }}
+          retention-days: 14
+
+      # 仅 tag 发布：保证发布页只出现正式版
       - name: Publish release (gh CLI)
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
