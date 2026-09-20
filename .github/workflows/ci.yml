@@ -73,7 +73,7 @@ jobs:
           SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
           APK=build/app/outputs/flutter-apk/app-debug.apk
           test -f "$APK"
-          OUT="ebook2tts-local-${SHORT_SHA}-debug.apk"
+          OUT="ebook2tts-${SHORT_SHA}-debug.apk"
           cp "$APK" "../$OUT"
           echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
           echo "ARTIFACT=${OUT}" >> "$GITHUB_ENV"
@@ -82,7 +82,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v6
         with:
-          name: ebook2tts-local-${{ env.SHORT_SHA }}-debug
+          name: ebook2tts-${{ env.SHORT_SHA }}-debug
           path: ${{ env.ARTIFACT }}
           if-no-files-found: error
           retention-days: 7

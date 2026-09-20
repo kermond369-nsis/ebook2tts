@@ -107,11 +107,11 @@ jobs:
           if [ "${{ steps.signing.outputs.available }}" = "true" ]; then
             bash ../scripts/build-release-arm64.sh build/app/outputs/flutter-apk/app-release-arm64.apk
             APK_SRC=build/app/outputs/flutter-apk/app-release-arm64.apk
-            APK="ebook2tts-local-${SHORT_SHA}-arm64-release.apk"
+            APK="ebook2tts-${SHORT_SHA}-arm64-release.apk"
           else
             flutter build apk --debug
             APK_SRC=build/app/outputs/flutter-apk/app-debug.apk
-            APK="ebook2tts-local-${SHORT_SHA}-debug.apk"
+            APK="ebook2tts-${SHORT_SHA}-debug.apk"
           fi
           test -f "$APK_SRC"
           cp "$APK_SRC" "../$APK"
