@@ -143,6 +143,7 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
+          REASON: ${{ inputs.reason }}
         run: |
           set -e
           TAG="${{ steps.meta.outputs.tag }}"
@@ -156,8 +157,8 @@ jobs:
 
           - Commit: ${GITHUB_SHA}
           - Workflow: ${GITHUB_SERVER_URL}/${REPO}/actions/runs/${GITHUB_RUN_ID}"
-            if [ -n "${{ inputs.reason }}" ]; then BODY="${BODY}
-          - Note: ${{ inputs.reason }}"; fi
+            if [ -n "$REASON" ]; then BODY="${BODY}
+          - Note: ${REASON}"; fi
             gh release create "$TAG" "$APK" --repo "$REPO" --title "$TAG" --notes "$BODY" --latest
           fi
           gh release view "$TAG" --repo "$REPO" --json name,tagName,url,assets
