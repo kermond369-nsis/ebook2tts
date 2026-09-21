@@ -93,7 +93,7 @@ object ModelCatalog {
         ModelSpec(
             id = "vits-zh-ll",
             label = "VITS zh-ll（保底）",
-            desc = "中文 5 音色，低端机默认推荐。实测约 119MB。",
+            desc = "中文 5 音色，保底档（本地合成下限机型）默认推荐。实测约 119MB。",
             archiveName = "sherpa-onnx-vits-zh-ll.tar.bz2",
             primaryUrl = GH + "/sherpa-onnx-vits-zh-ll.tar.bz2",
             mirrorUrl = acc(ACC_FAST, "sherpa-onnx-vits-zh-ll.tar.bz2"),
