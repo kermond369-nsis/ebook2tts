@@ -2,7 +2,7 @@
   "schema": 1,
   "version": 2026091301,
   "updatedAt": "2026-09-13",
-  "note": "ebook2tts-local 模型清单（IM-201）。体积为 ERR-001 逐字节实测值；mirrors 为国内可达的 GitHub 加速源（2026-09-14 逐源实测，支持 Range 断点续传）。修改本文件必须同步 core/ModelCatalog.kt 的内置兜底，否则 ManifestCodecTest 会失败。",
+  "note": "书声（ebook2tts）模型清单（IM-201）。体积为 ERR-001 逐字节实测值；mirrors 为国内可达的 GitHub 加速源（2026-09-14 逐源实测，支持 Range 断点续传）。修改本文件必须同步 core/ModelCatalog.kt 的内置兜底，否则 ManifestCodecTest 会失败。",
   "models": [
     {
       "id": "kokoro-int8",

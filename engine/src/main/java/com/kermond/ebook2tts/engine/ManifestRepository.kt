@@ -88,7 +88,7 @@ class ManifestRepository(
 
         /** 官方清单地址（仓库根 manifest.json，随版本可在线更新） */
         const val RAW_URL: String =
-            "https://raw.githubusercontent.com/kermond369-nsis/ebook2tts-local/main/manifest.json"
+            "https://raw.githubusercontent.com/kermond369-nsis/ebook2tts/main/manifest.json"
 
         /**
          * 加速前缀：国内直连拿不到 `raw.githubusercontent.com`（实测 15s 超时），

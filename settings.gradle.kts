@@ -12,7 +12,7 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "ebook2tts-local"
+rootProject.name = "ebook2tts"
 include(":core")
 include(":engine")
 // :app 已由 Flutter 工程接管（app/android 为独立 Gradle 构建，并 include 本仓 :core/:engine），
