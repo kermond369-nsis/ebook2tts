@@ -50,28 +50,6 @@ class SystemBridge {
     }
   }
 
-  /// 本地模式适用性判定（RQ-515/RQ-516，IM-546）。
-  ///
-  /// 用于「用户选择本地模式」时按需弹「性能不足，可能延迟极大」。
-  /// 判定口径（阈值、玄戒 O1/O3 豁免、核数下限）全部在 :core 的 LocalModeAdvisor，
-  /// 界面**不得**自行复刻该逻辑。桥不可用时返回 null（老版本/异常）⇒ 界面按"不弹"处理。
-  static Future<LocalModeVerdict?> localModeVerdict() async {
-    try {
-      final m = await _channel
-          .invokeMethod<Map<Object?, Object?>>('localModeVerdict');
-      if (m == null) return null;
-      return LocalModeVerdict(
-        warn: (m['warn'] as bool?) ?? false,
-        reason: (m['reason'] as String?) ?? '',
-        soc: (m['soc'] as String?) ?? '',
-        cores: (m['cores'] as int?) ?? 0,
-      );
-    } on PlatformException {
-      return null;
-    } on MissingPluginException {
-      return null;
-    }
-  }
   /// 读取朗读路由模式与"是否已选择"（RQ-513）。
   ///
   /// 返回 null（桥不可用）⇒ 界面按"已选择、保持默认"处理，**不打断**用户（fail-open）。
@@ -106,30 +84,6 @@ class SystemBridge {
   }
 }
 
-
-
-/// 本地模式适用性判定结果（RQ-515）。
-class LocalModeVerdict {
-  const LocalModeVerdict({
-    required this.warn,
-    required this.reason,
-    required this.soc,
-    required this.cores,
-  });
-
-  /// true ⇒ 选择本地模式时应弹警告
-  final bool warn;
-
-  /// 判定依据（用于弹窗副标题，如「SoC 低于骁龙 8 Gen 1」）
-  final String reason;
-
-  /// 实际读到的 SoC 型号（诊断/反馈用）
-  final String soc;
-
-  /// 物理核数（诊断用）
-  final int cores;
-
-}
 
 /// 开局模式状态（RQ-513）：模式 + 是否已选择过。
 class RouteModeState {

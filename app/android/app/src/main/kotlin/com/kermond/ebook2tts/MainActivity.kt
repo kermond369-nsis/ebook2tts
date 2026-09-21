@@ -44,8 +44,6 @@ class MainActivity : FlutterActivity() {
                         speakSample(call.argument<String>("text") ?: DEFAULT_SAMPLE)
                         result.success(null)
                     }
-                    // RQ-515 / IM-546：本地模式适用性判定（只读；界面在用户选本地模式时按需弹警告）
-                    "localModeVerdict" -> result.success(localModeVerdict())
                     // RQ-513：开局朗读路由模式（读：模式 + 是否已选择；写：模式 + 置已选择）
                     "getRouteMode" -> result.success(
                         mapOf(
@@ -67,34 +65,6 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
-    }
-
-    /**
-     * 本地模式适用性判定（RQ-515/RQ-516、IM-546）：把 :core 的 [LocalModeAdvisor] 暴露给界面。
-     *
-     * **只读判定**：不写配置、不改模式；界面在用户选择「仅本地 / 本地优先」时按需弹
-     * 「性能不足，可能延迟极大」。阈值与玄戒豁免的判定逻辑全部在 :core（已单测），此处只取 SoC 型号。
-     */
-    private fun localModeVerdict(): Map<String, Any> {
-        val soc = if (android.os.Build.VERSION.SDK_INT >= 31) {
-            android.os.Build.SOC_MODEL
-        } else {
-            val hw = runCatching {
-                java.io.File("/proc/cpuinfo").readText().lineSequence()
-                    .firstOrNull { it.startsWith("Hardware", ignoreCase = true) }
-                    ?.substringAfter(':')?.trim()
-            }.getOrNull()
-            if (!hw.isNullOrBlank()) hw else android.os.Build.HARDWARE
-        }
-        val cores = Runtime.getRuntime().availableProcessors()
-        val v = com.kermond.ebook2tts.core.LocalModeAdvisor.judge(soc, android.os.Build.MANUFACTURER, cores)
-        return mapOf(
-            "warn" to v.warn,
-            "reason" to v.reason,
-            "soc" to soc,
-            "manufacturer" to android.os.Build.MANUFACTURER,
-            "cores" to cores,
-        )
     }
 
     private fun speakSample(text: String) {

@@ -5,12 +5,16 @@
 //   且设置页是懒加载列表——屏外条目**未被构建**，直接 `find.text` 必然找不到；
 // - 现修订为：①给状态/事件流留出落地时间；②需要屏外内容时先滚动到可见再断言。
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ebook2tts/engine/mock_engine_service.dart';
 import 'package:ebook2tts/main.dart';
 import 'package:ebook2tts/state/providers.dart';
+
+/// 宿主侧桥接通道（与 `SystemBridge` 一致）。
+const MethodChannel _systemChannel = MethodChannel('com.kermond.ebook2tts/system');
 
 Future<void> _pumpApp(WidgetTester tester) async {
   // IM-511：Mock 已改为内存态，不再需要 shared_preferences
@@ -21,11 +25,39 @@ Future<void> _pumpApp(WidgetTester tester) async {
       child: const Ebook2TtsApp(),
     ),
   );
+  // 首启闸门（RQ-513）经平台通道读取路由状态；widget 测试必须给出确定应答，
+  // 否则通道 Future 永不完成 ⇒ 停在启动等待页、主壳（含「书声本地」）不渲染
+  // —— 这正是本测试自 P4 之后长期为红的真正原因（2026-09-21 定位并修复）。
+  await tester.pump();                                   // 让通道应答落地
   // 首屏状态来自异步 status()，给足时间再断言
   await tester.pump(const Duration(milliseconds: 400));
+  // 显式守卫（复核建议）：首启闸门未解开时给出秒级语义化失败，而非等到页面文字查找超时
+  expect(find.byType(CircularProgressIndicator), findsNothing,
+      reason: '首启闸门未解开：通道应答缺失或 status() 未落地');
 }
 
 void main() {
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_systemChannel, (MethodCall call) async {
+      switch (call.method) {
+        case 'getRouteMode':
+          // 已选择过朗读模式 ⇒ 直接进主壳（本组用例的前提）
+          return <String, Object>{'mode': 'prefer_online', 'chosen': true};
+        case 'setRouteMode':
+          final args = call.arguments as Map<Object?, Object?>?;
+          return (args?['mode'] as String?) ?? 'prefer_online';
+        default:
+          return null;
+      }
+    });
+  });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_systemChannel, null);
+  });
+
   testWidgets('导航壳可切换，六个页面均非空白', (WidgetTester tester) async {
     await _pumpApp(tester);
 

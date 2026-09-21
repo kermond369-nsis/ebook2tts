@@ -7,9 +7,9 @@ import '../platform/system_bridge.dart';
 /// **不预置任何模型**：首启先选「在线模式 / 本地模式」，再选「仅 X / 谁优先」，
 /// 结果经系统桥写入引擎配置（`route.mode`）并置"已选择"。
 ///
-/// RQ-515：选**本地模式**且设备性能低于阈值时，弹「性能不足，可能延迟极大」；
-/// 判定口径全部来自 :core 的 `LocalModeAdvisor`（界面**不得**复刻阈值），
-/// 玄戒 O1/O3 由判定侧豁免 ⇒ 本页不额外判断厂商。
+/// RQ-515（2026-09-21 修订）：**不做机型判定、不做任何限制**。用户选择**本地模式**后
+/// **无条件**弹一次「本地合成最低要求」告知——频次＝首次进入 App 时一次（甲方 2026-09-21 确认），
+/// 本页只出现在首启流程，故天然满足「只弹一次」。
 class ModeSetupPage extends StatefulWidget {
   const ModeSetupPage({super.key, required this.onDone});
 
@@ -48,28 +48,24 @@ class _ModeSetupPageState extends State<ModeSetupPage> {
     await widget.onDone();
   }
 
-  /// 选中「本地模式」时的性能提示（RQ-515）。
-  Future<bool> _mayChooseLocal() async {
-    final v = await SystemBridge.localModeVerdict();
-    if (v == null || !v.warn) return true;                  // 桥不可用/高配 ⇒ 不打扰
-    if (!mounted) return false;
-    final go = await showDialog<bool>(
+  /// 选择「本地模式」后的**无条件告知**（RQ-515，2026-09-21 修订）。
+  ///
+  /// 不做机型判定、不做任何限制：任意机型均弹最低要求告知，确认后即可使用。
+  Future<void> _confirmLocalNotice() async {
+    await showDialog<void>(
       context: context,
+      barrierDismissible: false, // 复核 4.2：点外部/返回不得"关闭即被动选中"，须显式确认
       builder: (ctx) => AlertDialog(
-        title: const Text('性能不足，可能延迟极大'),
-        content: Text(
-          '当前设备（${v.soc.isEmpty ? '未知型号' : v.soc}，${v.cores} 核）'
-          '在本地模式下的合成速度可能明显慢于实时播放。\n\n'
-          '${v.reason.isEmpty ? '' : '判定依据：${v.reason}\n\n'}'
-          '你仍可选择本地模式（不预置模型、可随时在设置中更改）。',
+        title: const Text('本地合成最低要求'),
+        content: const Text(
+          '本地合成最低要求：骁龙 8 Gen 1 及以上／天玑 9300 及以上（含其后发布的旗舰芯片）。\n\n'
+          '低于该要求的设备上本地合成可能极慢且不作性能承诺；需要流畅体验请改用在线合成。',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('返回')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('仍选本地')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('我知道了')),
         ],
       ),
     );
-    return go ?? false;
   }
 
   @override
@@ -105,7 +101,8 @@ class _ModeSetupPageState extends State<ModeSetupPage> {
                 subtitle: '使用本机推理（无需套餐；高性能机型体验佳，低配机型可能很慢）',
                 selected: _onlineMode == false,
                 onTap: () async {
-                  if (!await _mayChooseLocal()) return;      // RQ-515 警告
+                  if (_onlineMode == false) return;          // 复核 4.1：本页内不重复弹窗
+                  await _confirmLocalNotice();               // RQ-515：选择本地后无条件告知
                   if (!mounted) return;
                   setState(() => _onlineMode = false);
                 },
