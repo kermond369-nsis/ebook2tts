@@ -310,13 +310,13 @@ class StreamingPcmResampler(
             val s1 = if (idx + 1 < 0) samples[0].toInt() else samples[idx + 1].toInt()
             val v = kotlin.math.round(s0 + (s1 - s0) * frac).toInt().coerceIn(-32768, 32767)
             dynamicOut.add(v.toShort())
-            outCount++
             srcPos += step
         }
         prevSample = samples[nIn - 1].toInt()
         hasPrev = true
         srcPos -= nIn.toDouble()
 
+        val outCount = dynamicOut.size
         val bytes = ByteArray(outCount * 2)
         for (i in 0 until outCount) {
             val s = dynamicOut[i].toInt()
