@@ -66,26 +66,49 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Build debug APK
+      - name: Flutter widget tests
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter test
+
+      - name: Build APKs (arm64 profile + debug)
         id: build
         working-directory: app
         run: |
           set -e
-          flutter pub get
-          flutter build apk --debug
           SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
-          APK=build/app/outputs/flutter-apk/app-debug.apk
-          test -f "$APK"
-          OUT="ebook2tts-${SHORT_SHA}-debug.apk"
-          cp "$APK" "../$OUT"
-          echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
-          echo "ARTIFACT=${OUT}" >> "$GITHUB_ENV"
-          ls -lh "../$OUT"
 
-      - name: Upload APK artifact
+          flutter build apk --profile --target-platform android-arm64
+          PROFILE_APK=build/app/outputs/flutter-apk/app-profile.apk
+          test -f "$PROFILE_APK"
+          OUT_PROFILE="ebook2tts-${SHORT_SHA}-arm64-profile.apk"
+          cp "$PROFILE_APK" "../$OUT_PROFILE"
+
+          flutter build apk --debug
+          DEBUG_APK=build/app/outputs/flutter-apk/app-debug.apk
+          test -f "$DEBUG_APK"
+          OUT_DEBUG="ebook2tts-${SHORT_SHA}-debug.apk"
+          cp "$DEBUG_APK" "../$OUT_DEBUG"
+
+          echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
+          echo "ARTIFACT_PROFILE=${OUT_PROFILE}" >> "$GITHUB_ENV"
+          echo "ARTIFACT_DEBUG=${OUT_DEBUG}" >> "$GITHUB_ENV"
+          ls -lh "../$OUT_PROFILE" "../$OUT_DEBUG"
+          wc -c "../$OUT_PROFILE" "../$OUT_DEBUG"
+
+      - name: Upload arm64 profile APK artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ebook2tts-${{ env.SHORT_SHA }}-arm64-profile
+          path: ${{ env.ARTIFACT_PROFILE }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v6
         with:
           name: ebook2tts-${{ env.SHORT_SHA }}-debug
-          path: ${{ env.ARTIFACT }}
+          path: ${{ env.ARTIFACT_DEBUG }}
           if-no-files-found: error
           retention-days: 7

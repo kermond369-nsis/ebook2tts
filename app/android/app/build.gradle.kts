@@ -7,6 +7,15 @@ plugins {
 }
 
 android {
+    val requestedPlatforms = providers.gradleProperty("target-platform").orNull.orEmpty()
+    val arm64Only = providers.gradleProperty("arm64Only")
+        .map { it.equals("true", ignoreCase = true) }
+        .getOrElse(false) ||
+        (requestedPlatforms.isNotBlank() && !requestedPlatforms.contains("x64", ignoreCase = true)) ||
+        gradle.startParameter.taskNames.any {
+            it.contains("Release", ignoreCase = true) || it.contains("Profile", ignoreCase = true)
+        }
+
     // P7：发布签名（存在 key.properties 时用发布密钥；否则回退调试密钥，保证他人 clone 后可构建）
     val keyProps = Properties().apply {
         val f = rootProject.file("key.properties")
@@ -41,11 +50,22 @@ android {
 
     buildTypes {
         debug {
-            // 规格 §1：调试包用于 MuMu(x86_64) 与真机(arm64) 验证 ⇒ 保留 x86_64 + arm64-v8a
-            // （注意：必须 clear，否则 Flutter 注入的 ABI 列表会残留）
+            // 规格 §1：调试包用于 MuMu(x86_64) 与真机(arm64) 验证 ⇒ 默认保留 x86_64 + arm64-v8a；
+            // 指定仅 arm64 构建时收敛为单 ABI（注意：必须 clear，否则 Flutter 注入的 ABI 列表会残留）
             ndk {
                 abiFilters.clear()
-                abiFilters.addAll(listOf("x86_64", "arm64-v8a"))
+                if (arm64Only) {
+                    abiFilters.add("arm64-v8a")
+                } else {
+                    abiFilters.addAll(listOf("x86_64", "arm64-v8a"))
+                }
+            }
+        }
+        matching { it.name == "profile" }.configureEach {
+            // 真机 AOT 测试包仅打 arm64-v8a（剔除 x86_64 与 Vulkan 验证层）
+            ndk {
+                abiFilters.clear()
+                abiFilters.add("arm64-v8a")
             }
         }
         release {
@@ -64,12 +84,14 @@ android {
 
     packaging {
         jniLibs {
-            // 引擎 AAR 内置多套 ABI，调试包不剥离符号，避免依赖本机未安装的 NDK 工具链
-            keepDebugSymbols += listOf("**/*.so")
-            // ABI 收敛（P7 / RQ-512）：显式排除 32 位 armeabi-v7a。
-            // 原因：sherpa-onnx 本地 AAR（engine/libs/*.aar）与 Flutter 的 target-platform 默认值
-            // 仍会带入 v7a 的 4 个 .so；单靠 ndk.abiFilters 无法剔除（实测 APK 内残留 v7a/ 目录）。
-            excludes += "lib/armeabi-v7a/**"
+            // 压缩 .so 并放行 AGP/NDK 剥离 DWARF 调试符号，消除 377MB libflutter.so / 237MB libVkLayer 膨胀
+            useLegacyPackaging = true
+            // ABI 收敛（P7 / RQ-512）：显式排除 32 位 armeabi-v7a 与 x86（aar 内含 4 种 ABI）；
+            // 当仅构建 arm64 时同步剔除 x86_64（单靠 ndk.abiFilters 无法剔除本地 AAR 带入的库）。
+            excludes += listOf("lib/armeabi-v7a/**", "lib/x86/**")
+            if (arm64Only) {
+                excludes += "lib/x86_64/**"
+            }
         }
     }
 }

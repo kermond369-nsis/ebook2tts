@@ -89,14 +89,23 @@ void main() {
     await tester.tap(find.text('设置').last);
     await tester.pump(const Duration(milliseconds: 300));
 
-    // 首屏可见区：在线朗读默认关（含单独同意提示）
+    // 首屏可见区：在线朗读默认关（含单独同意提示），下方渲染多引擎卡片
     expect(
         find.text('已关闭：朗读只在本机完成。开启前会先请你单独确认外发告知。',
             skipOffstage: false),
         findsOneWidget);
-    expect(find.text('按量计费 API Key（推荐）', skipOffstage: false), findsOneWidget);
+    expect(find.text('在线语音引擎（通用转接）', skipOffstage: false), findsOneWidget);
 
-    // 屏外：网络策略区（懒加载列表 → 先滚动到构建出来再断言）
+    // 屏外（多引擎卡片之下）：按量计费默认选中 + 网络策略区（懒加载列表 → 先滚动再断言）
+    const billingTitle = '按量计费 API Key（推荐）';
+    await tester.scrollUntilVisible(
+      find.text(billingTitle),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text(billingTitle), findsOneWidget);
+
     const wifiOff = '已关闭（默认）：只在无线网络下下载模型与联网朗读。';
     await tester.scrollUntilVisible(
       find.text(wifiOff),
