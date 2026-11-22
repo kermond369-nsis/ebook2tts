@@ -32,11 +32,12 @@ class ManifestFetchTest {
 
     @Test
     fun officialFirst_winsWhenValid() {
-        val src = MapSource(mapOf(urls[0] to json(2026091401L)))
+        val v = ModelCatalog.BUILTIN_MANIFEST_VERSION
+        val src = MapSource(mapOf(urls[0] to json(v)))
         val picked = ManifestRepository.pick(src, urls)
         assertEquals(urls[0], src.hits.first())
         assertEquals(1, src.hits.size)
-        assertEquals(2026091401L, picked!!.second.version)
+        assertEquals(v, picked!!.second.version)
     }
 
     @Test
@@ -44,7 +45,7 @@ class ManifestFetchTest {
         val src = MapSource(
             mapOf(
                 urls[0] to "not json", // 官方通道被劫持/损坏
-                urls[1] to json(2026091401L, id = "via-accel"),
+                urls[1] to json(ModelCatalog.BUILTIN_MANIFEST_VERSION, id = "via-accel"),
             )
         )
         val picked = ManifestRepository.pick(src, urls)

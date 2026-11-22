@@ -124,7 +124,7 @@ object OnlineSelector {
                 val resolved = baseUrl.trim().trimEnd('/').ifEmpty { TtsProviderKind.OPENAI_COMPAT.defaultBaseUrl }
                 !requiresApiKeyForOpenAiCompat(resolved) || key.isNotEmpty()
             }
-            TtsProviderKind.CUSTOM_HTTP -> baseUrl.trim().startsWith("https://")
+            TtsProviderKind.CUSTOM_HTTP -> EndpointUrlPolicy.isAllowed(baseUrl)
         }
     }
 
@@ -174,14 +174,14 @@ object OnlineSelector {
                 val resolved = trimmedBase.ifEmpty { TtsProviderKind.OPENAI_COMPAT.defaultBaseUrl }
                 when {
                     !onlineEnabled -> "online_disabled"
-                    !resolved.startsWith("https://") -> "invalid_base_url"
+                    !EndpointUrlPolicy.isAllowed(resolved) -> "invalid_base_url"
                     requiresApiKeyForOpenAiCompat(resolved) && key.isEmpty() -> "no_key"
                     else -> NetPolicy.blockReason(allowMobileData, onCellular)
                 }
             }
             TtsProviderKind.CUSTOM_HTTP -> when {
                 !onlineEnabled -> "online_disabled"
-                !trimmedBase.startsWith("https://") -> "no_base_url"
+                !EndpointUrlPolicy.isAllowed(trimmedBase) -> "no_base_url"
                 else -> NetPolicy.blockReason(allowMobileData, onCellular)
             }
         }

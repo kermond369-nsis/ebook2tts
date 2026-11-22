@@ -40,3 +40,14 @@ object ErrorSanitizer {
             .take(maxLen)
     }
 }
+
+/** 允许 https:// 远程地址，或本机回环 http://localhost / 127.0.0.1 / [::1]（供自建回环服务及 MockWebServer 单测） */
+object EndpointUrlPolicy {
+    private val LOOPBACK_HTTP = Regex("""(?i)^http://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(/.*)?$""")
+
+    fun isAllowed(raw: String): Boolean {
+        val s = raw.trim()
+        if (s.startsWith("https://", ignoreCase = true) && s.length > "https://".length) return true
+        return LOOPBACK_HTTP.matches(s)
+    }
+}

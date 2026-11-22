@@ -238,8 +238,8 @@ class PreviewPlayer(private val context: Context) {
                     }
                     val activeSr = if (trackSr > 0) trackSr else chunkSr
                     val aligned = if (chunkSr != activeSr) {
-                        segResampler = segResampler ?: StreamingPcmResampler(chunkSr, activeSr)
-                        segResampler!!.process(chunk.pcm16Mono)
+                        val activeResampler = segResampler ?: StreamingPcmResampler(chunkSr, activeSr).also { segResampler = it }
+                        activeResampler.process(chunk.pcm16Mono)
                     } else {
                         chunk.pcm16Mono
                     }

@@ -62,7 +62,7 @@ class CustomHttpTtsProvider(
 
     override fun validate(request: OnlineRequest): String? {
         val url = request.baseUrl.trim()
-        if (!url.startsWith("https://")) return "自定义接口地址必须以 https:// 开头"
+        if (!EndpointUrlPolicy.isAllowed(url)) return "自定义接口地址必须以 https:// 开头"
         val job = try {
             io.submit(Callable {
                 val req = buildHttpRequest(url, request, "测试", 1.0f)
@@ -114,7 +114,7 @@ class CustomHttpTtsProvider(
     ): OnlineOutcome {
         val t0 = System.currentTimeMillis()
         val url = request.baseUrl.trim()
-        if (!url.startsWith("https://")) {
+        if (!EndpointUrlPolicy.isAllowed(url)) {
             return OnlineOutcome.Failed(OnlineFailureKind.HTTP, "invalid_url", "自定义接口地址必须以 https:// 开头")
         }
         return try {

@@ -63,7 +63,7 @@ class OpenAiCompatTtsProvider(
 
     override fun validate(request: OnlineRequest): String? {
         val base = request.baseUrl.trim().trimEnd('/')
-        if (!base.startsWith("https://")) return "接口地址必须以 https:// 开头"
+        if (!EndpointUrlPolicy.isAllowed(base)) return "接口地址必须以 https:// 开头"
         val job = try {
             io.submit(Callable {
                 val modelsBuilder = Request.Builder().url("$base/models").get()
@@ -116,7 +116,7 @@ class OpenAiCompatTtsProvider(
     ): OnlineOutcome {
         val t0 = System.currentTimeMillis()
         val base = request.baseUrl.trim().trimEnd('/')
-        if (!base.startsWith("https://")) {
+        if (!EndpointUrlPolicy.isAllowed(base)) {
             return OnlineOutcome.Failed(OnlineFailureKind.HTTP, "invalid_url", "接口地址必须以 https:// 开头")
         }
         return try {
@@ -190,7 +190,7 @@ class OpenAiCompatTtsProvider(
             .put("model", request.model.ifBlank { kind.defaultModel })
             .put("input", text)
             .put("voice", request.voice.ifBlank { kind.defaultVoice })
-            .put("speed", speed.coerceIn(0.25f, 4.0f).toDouble())
+            .put("speed", kotlin.math.round(speed.coerceIn(0.25f, 4.0f) * 100.0) / 100.0)
         if (fmt != "auto") {
             payload.put("response_format", fmt)
         }
