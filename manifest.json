@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "version": 2026091301,
-  "updatedAt": "2026-09-13",
+  "version": 2026112201,
+  "updatedAt": "2026-11-22",
   "note": "书声（ebook2tts）模型清单（IM-201）。体积为 ERR-001 逐字节实测值；mirrors 为国内可达的 GitHub 加速源（2026-09-14 逐源实测，支持 Range 断点续传）。修改本文件必须同步 core/ModelCatalog.kt 的内置兜底，否则 ManifestCodecTest 会失败。",
   "models": [
     {
@@ -27,6 +27,33 @@
         "ruleFsts": "phone-zh.fst,date-zh.fst,number-zh.fst"
       },
       "recommended": true
+    },
+    {
+      "id": "matcha-zh-en",
+      "label": "Matcha 中英轻量（流畅推荐）",
+      "desc": "中英混排 Flow-Matching 端侧模型（配 Vocos 声码器），语调更自然、速度显著快于 Kokoro。",
+      "archive": "matcha-icefall-zh-en.tar.bz2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2",
+      "mirrors": [
+        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2",
+        "https://hk.gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2",
+        "https://ghproxy.net/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2"
+      ],
+      "sha256": "271b804af570400d3bcdcb53bf6e53cc9f75180ee763b9f13eb5eaf2b0d086ef",
+      "downloadBytes": 79033838,
+      "extractedBytes": 95346626,
+      "files": {
+        "kind": "matcha",
+        "model": "model-steps-3.onnx",
+        "lexicon": "lexicon.txt",
+        "dataDir": "espeak-ng-data",
+        "ruleFsts": "phone-zh.fst,date-zh.fst,number-zh.fst",
+        "vocoder": "vocos-16khz-univ.onnx",
+        "vocoderUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos-16khz-univ.onnx",
+        "vocoderSha256": "b599142a1fb8ff03de3e84ac35ff537c619e56f4267a6fe894851a42844acf9e",
+        "vocoderBytes": 53882848
+      },
+      "lowEndDefault": true
     },
     {
       "id": "vits-zh-ll",

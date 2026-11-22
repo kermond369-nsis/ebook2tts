@@ -91,5 +91,19 @@ class TextAnalyzerTest {
         assertEquals(null, TextAnalyzer.cleanSpeakerHint("   "))
         assertEquals(null, TextAnalyzer.cleanSpeakerHint("说道"))
         assertEquals("吴伯", TextAnalyzer.cleanSpeakerHint("吴伯提醒"))
+        assertEquals(null, TextAnalyzer.cleanSpeakerHint("他"))
+        assertEquals(null, TextAnalyzer.cleanSpeakerHint("众人"))
+    }
+
+    @Test
+    fun multiSentenceDialogue_staysTogether_andRearSpeakerExtracted() {
+        val multi = TextAnalyzer.analyze("“你先走。我马上跟上。”")
+        assertEquals(1, multi.size)
+        assertEquals(SegmentKind.DIALOGUE, multi[0].kind)
+
+        val rear = TextAnalyzer.analyze("“今天天气不错。”林安笑道。")
+        assertEquals(1, rear.size)
+        assertEquals(SegmentKind.DIALOGUE, rear[0].kind)
+        assertEquals("林安", rear[0].speakerHint)
     }
 }

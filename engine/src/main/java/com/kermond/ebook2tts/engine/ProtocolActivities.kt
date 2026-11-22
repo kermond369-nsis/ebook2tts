@@ -1,22 +1,25 @@
 package com.kermond.ebook2tts.engine
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import com.kermond.ebook2tts.core.ModelCatalog
 import java.io.File
 
 /** CHECK_TTS_DATA：如实返回（RQ-112 / RQ-101） */
 class CheckTtsDataActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val hasModel = ModelPresence.hasAnyInstalled(this)
+        val available = ModelPresence.isAnyBackendAvailable(this)
         val result = Intent()
-        if (hasModel) {
-            result.putExtra(TextToSpeech.Engine.EXTRA_AVAILABLE_VOICES, "zho-CN")
+        val voices = arrayListOf("zho-CN", "eng-US")
+        if (available) {
+            result.putStringArrayListExtra(TextToSpeech.Engine.EXTRA_AVAILABLE_VOICES, voices)
             setResult(TextToSpeech.Engine.CHECK_VOICE_DATA_PASS, result)
         } else {
-            result.putExtra(TextToSpeech.Engine.EXTRA_UNAVAILABLE_VOICES, "zho-CN")
+            result.putStringArrayListExtra(TextToSpeech.Engine.EXTRA_UNAVAILABLE_VOICES, voices)
             setResult(TextToSpeech.Engine.CHECK_VOICE_DATA_FAIL, result)
         }
         finish()
@@ -47,9 +50,31 @@ class InstallTtsDataActivity : Activity() {
 }
 
 object ModelPresence {
-    fun hasAnyInstalled(context: android.content.Context): Boolean {
+    fun hasAnyInstalled(context: Context): Boolean {
         val models = File(context.filesDir, "models")
         if (!models.isDirectory) return false
         return models.listFiles()?.any { File(it, ".completed").exists() } == true
+    }
+
+    fun isActiveModelInstalled(context: Context): Boolean {
+        val spec = ModelCatalog.byId(ConfigStore.modelId())
+        val model = File(File(context.filesDir, "models/${spec.id}"), spec.files.modelName)
+        return model.exists() && model.length() > 0L
+    }
+
+    fun isOnlineConfigured(): Boolean = OnlineSelector.isOnlineConfigured(
+        routeMode = ConfigStore.routeMode(),
+        onlineEnabled = ConfigStore.onlineEnabled(),
+        apiKey = ConfigStore.onlineApiKey(),
+        keyKind = ConfigStore.onlineKeyKind(),
+        tokenPlanAccepted = ConfigStore.onlineTokenPlanAccepted(),
+        providerKind = ConfigStore.onlineProviderKind(),
+        baseUrl = ConfigStore.onlineBaseUrl(),
+    )
+
+    fun isAnyBackendAvailable(context: Context): Boolean {
+        val mode = ConfigStore.routeMode()
+        val localOk = mode.allowsLocal && (isActiveModelInstalled(context) || hasAnyInstalled(context))
+        return localOk || isOnlineConfigured()
     }
 }

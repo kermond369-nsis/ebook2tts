@@ -10,7 +10,14 @@ data class ModelFiles(
     val voices: String = "",
     val lexicon: String = "",
     val dataDir: String = "",
+    val dictDir: String = "",
     val ruleFsts: String = "",
+    val ruleFars: String = "",
+    val vocoder: String = "",
+    val vocoderUrl: String = "",
+    val vocoderSha256: String = "",
+    val vocoderBytes: Long = 0L,
+    val lang: String = "",
     val tokens: String = "tokens.txt",
 )
 
@@ -44,10 +51,12 @@ object ModelCatalog {
     const val DEFAULT_ID = "kokoro-int8"
 
     /** 内置兜底清单版本（与仓库根 manifest.json 由单测绑定一致；远程清单版本更高时以远程为准） */
-    const val BUILTIN_MANIFEST_VERSION: Long = 2026091301L
-    const val BUILTIN_MANIFEST_UPDATED_AT: String = "2026-09-13"
+    const val BUILTIN_MANIFEST_VERSION: Long = 2026112201L
+    const val BUILTIN_MANIFEST_UPDATED_AT: String = "2026-11-22"
     private const val GH =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models"
+    private const val GH_VOCODER =
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models"
 
     /**
      * 国内可达的 GitHub 加速前缀（2026-09-14 逐源实测，替代此前失效的 hf-mirror）。
@@ -89,6 +98,33 @@ object ModelCatalog {
                 ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst",
             ),
             recommended = true,
+        ),
+        ModelSpec(
+            id = "matcha-zh-en",
+            label = "Matcha 中英轻量（流畅推荐）",
+            desc = "中英混排 Flow-Matching 端侧模型（配 Vocos 声码器），语调更自然、速度显著快于 Kokoro。",
+            archiveName = "matcha-icefall-zh-en.tar.bz2",
+            primaryUrl = GH + "/matcha-icefall-zh-en.tar.bz2",
+            mirrorUrl = acc(ACC_FAST, "matcha-icefall-zh-en.tar.bz2"),
+            extraMirrors = listOf(
+                acc(ACC_HK, "matcha-icefall-zh-en.tar.bz2"),
+                acc(ACC_SLOW, "matcha-icefall-zh-en.tar.bz2"),
+            ),
+            downloadBytes = 79_033_838L,
+            extractedBytes = 95_346_626L,
+            sha256 = "271b804af570400d3bcdcb53bf6e53cc9f75180ee763b9f13eb5eaf2b0d086ef",
+            files = ModelFiles(
+                kind = "matcha",
+                modelName = "model-steps-3.onnx",
+                lexicon = "lexicon.txt",
+                dataDir = "espeak-ng-data",
+                ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst",
+                vocoder = "vocos-16khz-univ.onnx",
+                vocoderUrl = "$GH_VOCODER/vocos-16khz-univ.onnx",
+                vocoderSha256 = "b599142a1fb8ff03de3e84ac35ff537c619e56f4267a6fe894851a42844acf9e",
+                vocoderBytes = 53_882_848L,
+            ),
+            lowEndDefault = true,
         ),
         ModelSpec(
             id = "vits-zh-ll",

@@ -1,5 +1,7 @@
 package com.kermond.ebook2tts.engine
 
+import com.kermond.ebook2tts.core.OnlineSettings
+import com.kermond.ebook2tts.core.TtsProviderKind
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -51,6 +53,42 @@ class OnlineBackend(
         Thread(r, "mimo-online").apply { isDaemon = true }
     }
 
+    private val openAiProvider = OpenAiCompatTtsProvider(client, this.io)
+    private val customHttpProvider = CustomHttpTtsProvider(client, this.io)
+
+    /**
+     * 多引擎统一流式合成入口：根据 [OnlineRequest.providerKind] 调度 MiMo / OpenAI 兼容 / 自定义 HTTP。
+     * 每个解码块附带其实际采样率（由调用方按需重采样）。
+     */
+    fun synthesizeChunks(
+        request: OnlineRequest,
+        text: String,
+        speed: Float = 1.0f,
+        onChunk: (TtsAudioChunk) -> Boolean,
+        isCancelled: () -> Boolean,
+    ): OnlineOutcome = when (request.providerKind) {
+        TtsProviderKind.MIMO -> {
+            val sr = if (request.sampleRate > 0) request.sampleRate else OnlineSettings.SAMPLE_RATE
+            synthesize(
+                request = request,
+                text = text,
+                onPcm = { pcm -> onChunk(TtsAudioChunk(pcm, sr)) },
+                isCancelled = isCancelled,
+            )
+        }
+        TtsProviderKind.OPENAI_COMPAT ->
+            openAiProvider.synthesize(request, text, speed, onChunk, isCancelled)
+        TtsProviderKind.CUSTOM_HTTP ->
+            customHttpProvider.synthesize(request, text, speed, onChunk, isCancelled)
+    }
+
+    /** 统一连通性与密钥校验入口 */
+    fun validate(request: OnlineRequest): String? = when (request.providerKind) {
+        TtsProviderKind.MIMO -> validateKey(request)
+        TtsProviderKind.OPENAI_COMPAT -> openAiProvider.validate(request)
+        TtsProviderKind.CUSTOM_HTTP -> customHttpProvider.validate(request)
+    }
+
     /**
      * 流式合成一条文本。**阻塞当前线程**直至完成/失败/取消；真正的读写在工作线程，
      * 每解出一个 PCM16 片段即回调 [onPcm]（返回 false = 调用方要求停止）。
@@ -78,7 +116,7 @@ class OnlineBackend(
                 // 常规轮询：继续等待（取消响应 ≤1 tick）
             } catch (e: ExecutionException) {
                 val cause = e.cause
-                val summary = (cause?.message ?: cause?.javaClass?.simpleName ?: "worker_error").take(200)
+                val summary = ErrorSanitizer.sanitize(cause?.message ?: cause?.javaClass?.simpleName ?: "worker_error")
                 return OnlineOutcome.Failed(OnlineFailureKind.NETWORK, "worker", summary)
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
@@ -154,7 +192,7 @@ class OnlineBackend(
                         429 -> OnlineFailureKind.RATE_LIMIT
                         else -> OnlineFailureKind.HTTP
                     }
-                    return OnlineOutcome.Failed(kind, "http_${resp.code}", "HTTP ${resp.code}: $raw".take(200))
+                    return OnlineOutcome.Failed(kind, "http_${resp.code}", ErrorSanitizer.sanitize("HTTP ${resp.code}: $raw"))
                 }
                 val source = resp.body?.source()
                     ?: return OnlineOutcome.Failed(OnlineFailureKind.NETWORK, "empty_body", "响应无内容")
@@ -208,7 +246,7 @@ class OnlineBackend(
                 OnlineOutcome.Failed(
                     OnlineFailureKind.NETWORK,
                     reason,
-                    (t.message ?: t.javaClass.simpleName).take(200),
+                    ErrorSanitizer.sanitize(t.message ?: t.javaClass.simpleName),
                 )
             }
         }

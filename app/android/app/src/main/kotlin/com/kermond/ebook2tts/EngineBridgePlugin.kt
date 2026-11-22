@@ -9,9 +9,13 @@ import androidx.core.content.ContextCompat
 import com.kermond.ebook2tts.core.ModelCatalog
 import com.kermond.ebook2tts.core.ModelSpec
 import com.kermond.ebook2tts.core.OnlineSettings
+import com.kermond.ebook2tts.core.TtsProviderKind
 import com.kermond.ebook2tts.core.VoiceCatalog
 import com.kermond.ebook2tts.engine.ConfigStore
 import com.kermond.ebook2tts.engine.DownloadService
+import com.kermond.ebook2tts.engine.OnlineBackendHolder
+import com.kermond.ebook2tts.engine.OnlineRequest
+import com.kermond.ebook2tts.engine.OnlineSelector
 import com.kermond.ebook2tts.engine.PreviewService
 import com.kermond.ebook2tts.engine.RoleRegistry
 import com.tencent.mmkv.MMKV
@@ -25,11 +29,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 /**
  * App ↔ 引擎 桥接（Pigeon 宿主侧，ADR-012）。
@@ -48,13 +49,6 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
 
     /** 桥接观测到的事件（诊断页用，新的在下，最多 200 条）。 */
     private val ring = ArrayDeque<String>()
-
-    private val http: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .build()
-    }
 
     private var progressJob: Job? = null
 
@@ -111,7 +105,7 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
     override suspend fun status(): EngineStatusDto {
         val state = when (ConfigStore.statusState()) {
             "NO_MODEL" -> "noModel"
-            "LOADING", "INIT" -> "loading"
+            "INITIALIZING", "LOADING", "INIT" -> "loading"
             "READY" -> "ready"
             "RELOADING" -> "reloading"
             "ERROR" -> "error"
@@ -119,9 +113,20 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         }
         val modelId = ConfigStore.modelId().takeIf { isInstalled(it) }
         val installed = modelId != null
+        val providerKind = ConfigStore.onlineProviderKind()
+        val onlineOk = OnlineSelector.isOnlineConfigured(
+            routeMode = ConfigStore.routeMode(),
+            onlineEnabled = ConfigStore.onlineEnabled(),
+            apiKey = ConfigStore.onlineApiKey(),
+            keyKind = ConfigStore.onlineKeyKind(),
+            tokenPlanAccepted = ConfigStore.onlineTokenPlanAccepted(),
+            providerKind = providerKind,
+            baseUrl = ConfigStore.onlineBaseUrl(),
+        )
         val online = when {
             !ConfigStore.onlineEnabled() -> "off"
-            ConfigStore.onlineApiKey().isBlank() -> "noKey"
+            !onlineOk && ConfigStore.onlineApiKey().isBlank() -> "noKey"
+            !onlineOk -> "error"
             ConfigStore.statusLastError().isNotBlank() -> "error"
             else -> "ready"
         }
@@ -129,7 +134,7 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
             state = state,
             modelId = modelId,
             sampleRate = if (installed) ConfigStore.statusSampleRate().toLong() else 0L,
-            speakers = if (installed) VoiceCatalog.kokoroVoices().size.toLong() else 0L,
+            speakers = if (installed) VoiceCatalog.poolForModel(modelId!!).size.toLong() else 0L,
             online = online,
         )
     }
@@ -196,11 +201,12 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
 
     override suspend fun voices(): List<VoiceDto> = withContext(Dispatchers.Default) {
         val narrator = ConfigStore.narratorVoice()
-        VoiceCatalog.kokoroVoices().map { v ->
+        val pool = VoiceCatalog.poolForModel(ConfigStore.modelId())
+        pool.map { v ->
             VoiceDto(
                 id = v.id,
                 name = v.displayName,
-                lang = if (v.group.contains("英")) "en" else "zh",
+                lang = if (v.group.contains("英") && !v.group.contains("中")) "en" else "zh",
                 isNarrator = v.id == narrator,
             )
         }
@@ -284,27 +290,31 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
 
     override suspend fun validateKey(keyKind: String, apiKey: String): String? =
         withContext(Dispatchers.IO) {
-            // 甲方 2026-09-15 反馈：输入框为空时应校验**已保存**的密钥
-            // （此前保存后输入框被清空，"校验密钥"必然报"密钥为空"，让人误以为没保存成功）。
+            val providerKind = ConfigStore.onlineProviderKind()
             val input = apiKey.trim()
             val key = if (input.isNotEmpty()) input else ConfigStore.onlineApiKey().trim()
-            if (key.isBlank()) return@withContext "尚未保存密钥：请先填写密钥并点「保存密钥」"
-            val base = OnlineSettings.resolveBaseUrl(keyKind, ConfigStore.onlineBaseUrl())
-            val req = Request.Builder()
-                .url(base.trimEnd('/') + "/models")
-                .header("Authorization", "Bearer $key")
-                .get()
-                .build()
-            runCatching {
-                http.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) null
-                    else {
-                        val body = resp.body?.string().orEmpty()
-                        // 只回平台方原始错误摘要；不含密钥
-                        "HTTP ${resp.code}: " + body.take(200)
-                    }
-                }
-            }.getOrElse { e -> e.message?.take(200) ?: "网络错误" }
+            if (providerKind == TtsProviderKind.MIMO && key.isBlank()) {
+                return@withContext "尚未保存密钥：请先填写密钥并点「保存密钥」"
+            }
+            val base = when (providerKind) {
+                TtsProviderKind.MIMO -> OnlineSettings.resolveBaseUrl(keyKind, ConfigStore.onlineBaseUrl())
+                TtsProviderKind.OPENAI_COMPAT -> ConfigStore.onlineBaseUrl().trim()
+                    .ifEmpty { TtsProviderKind.OPENAI_COMPAT.defaultBaseUrl }
+                TtsProviderKind.CUSTOM_HTTP -> ConfigStore.onlineBaseUrl().trim()
+            }
+            val req = OnlineRequest(
+                baseUrl = base,
+                apiKey = key,
+                model = ConfigStore.onlineModel().trim().ifEmpty { providerKind.defaultModel },
+                voice = ConfigStore.onlineVoice().trim().ifEmpty { providerKind.defaultVoice },
+                style = ConfigStore.onlineStyle(),
+                providerKind = providerKind,
+                responseFormat = ConfigStore.onlineResponseFormat(),
+                sampleRate = ConfigStore.onlineSampleRate(),
+                customHeaders = ConfigStore.onlineCustomHeaders(),
+                customBodyTemplate = ConfigStore.onlineCustomBodyTemplate(),
+            )
+            OnlineBackendHolder.get().validate(req)
         }
 
     // ---------------------------------------------------------------- 内部

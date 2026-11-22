@@ -2,7 +2,9 @@ package com.kermond.ebook2tts.engine
 
 import com.kermond.ebook2tts.core.OnlineSettings
 import com.kermond.ebook2tts.core.RouteMode
+import com.kermond.ebook2tts.core.TtsProviderKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -143,5 +145,108 @@ class OnlineRouterTest {
         assertNull(OnlineSelector.hardBlockReason(ok))
         // 开关关闭同样是阻断（而非回落本地）
         assertEquals("online_disabled", OnlineSelector.hardBlockReason(select(onlineEnabled = false, routeMode = RouteMode.ONLY_ONLINE)))
+    }
+
+    @Test
+    fun fallbackDecision_onlyOnlineNeverFallsBack() {
+        assertEquals(
+            FallbackAction.NO_FALLBACK,
+            OnlineFallback.decide(
+                anyAudioEnqueued = false,
+                localSampleRate = 24000,
+                onlineSampleRate = 24000,
+                allowsLocal = false,
+                localBackendAvailable = true,
+            ),
+        )
+    }
+
+    @Test
+    fun fallbackDecision_localUnavailableNeverFallsBack() {
+        assertEquals(
+            FallbackAction.NO_FALLBACK,
+            OnlineFallback.decide(
+                anyAudioEnqueued = false,
+                localSampleRate = 0,
+                onlineSampleRate = 24000,
+                allowsLocal = true,
+                localBackendAvailable = false,
+            ),
+        )
+    }
+
+    @Test
+    fun isOnlineConfigured_matrix() {
+        assertFalse(OnlineSelector.isOnlineConfigured(RouteMode.ONLY_LOCAL, true, "sk-1", "billing", false))
+        assertFalse(OnlineSelector.isOnlineConfigured(RouteMode.ONLY_ONLINE, false, "sk-1", "billing", false))
+        assertFalse(OnlineSelector.isOnlineConfigured(RouteMode.ONLY_ONLINE, true, "   ", "billing", false))
+        assertFalse(OnlineSelector.isOnlineConfigured(RouteMode.PREFER_ONLINE, true, "tp-1", "plan", false))
+        assertTrue(OnlineSelector.isOnlineConfigured(RouteMode.PREFER_ONLINE, true, "tp-1", "plan", true))
+        assertTrue(OnlineSelector.isOnlineConfigured(RouteMode.ONLY_ONLINE, true, "sk-1", "billing", false))
+        assertTrue(OnlineSelector.isOnlineConfigured(RouteMode.PREFER_LOCAL, true, "sk-1", "billing", false))
+
+        // OpenAI 兼容自部署允许免密钥，OpenAI 官方需要密钥
+        assertTrue(
+            OnlineSelector.isOnlineConfigured(
+                RouteMode.ONLY_ONLINE, true, "", "billing", false,
+                providerKind = TtsProviderKind.OPENAI_COMPAT,
+                baseUrl = "https://tts.example.com/v1",
+            ),
+        )
+        assertFalse(
+            OnlineSelector.isOnlineConfigured(
+                RouteMode.ONLY_ONLINE, true, "", "billing", false,
+                providerKind = TtsProviderKind.OPENAI_COMPAT,
+                baseUrl = "https://api.openai.com/v1",
+            ),
+        )
+        assertTrue(
+            OnlineSelector.isOnlineConfigured(
+                RouteMode.ONLY_ONLINE, true, "", "billing", false,
+                providerKind = TtsProviderKind.CUSTOM_HTTP,
+                baseUrl = "https://tts.example.com/synth",
+            ),
+        )
+    }
+
+    @Test
+    fun openAiAndCustomProviders_selectCorrectlyWithoutTokenPlanOrRoleDesign() {
+        val openAi = OnlineSelector.select(
+            onlineEnabled = true,
+            apiKey = "",
+            keyKind = "billing",
+            baseUrl = "https://tts.example.com/v1/",
+            model = "",
+            voice = "",
+            style = "",
+            tokenPlanAccepted = false,
+            allowMobileData = true,
+            onCellular = false,
+            roleEnabled = true,
+            routeMode = RouteMode.ONLY_ONLINE,
+            providerKind = TtsProviderKind.OPENAI_COMPAT,
+            responseFormat = "wav",
+        ) as BackendChoice.Online
+        assertEquals("https://tts.example.com/v1", openAi.request.baseUrl)
+        assertEquals("tts-1", openAi.request.model)
+        assertEquals("alloy", openAi.request.voice)
+        assertFalse(openAi.request.roleEnabled)
+        assertTrue(openAi.request.usesNativeSpeed())
+
+        val missingCustomUrl = OnlineSelector.select(
+            onlineEnabled = true,
+            apiKey = "",
+            keyKind = "billing",
+            baseUrl = "http://insecure.example.com/tts",
+            model = "m",
+            voice = "v",
+            style = "",
+            tokenPlanAccepted = false,
+            allowMobileData = true,
+            onCellular = false,
+            routeMode = RouteMode.ONLY_ONLINE,
+            providerKind = TtsProviderKind.CUSTOM_HTTP,
+        )
+        assertEquals("no_base_url", OnlineSelector.hardBlockReason(missingCustomUrl))
     }
 }

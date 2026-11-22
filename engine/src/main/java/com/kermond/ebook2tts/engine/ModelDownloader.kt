@@ -68,14 +68,14 @@ class ModelDownloader(private val context: Context) {
 
     fun availableBytes(): Long = context.filesDir.usableSpace
 
-    /** 空间预检（RQ-206 / ERR-001）：可用空间 ≥ 2.5 × 清单实测解压体积。 */
+    /** 空间预检（RQ-206 / ERR-001）：可用空间 ≥ 2.5 × 清单实测解压体积（含独立声码器文件）。 */
     fun checkSpace(spec: ModelSpec): Boolean {
-        val need = ModelCatalog.requiredSpaceBytes(spec.extractedBytes)
+        val need = ModelCatalog.requiredSpaceBytes(spec.extractedBytes + spec.files.vocoderBytes)
         val avail = availableBytes()
         Log.i(
             TAG,
             "space|${spec.id}|manifest_dl=${spec.downloadBytes}|manifest_ext=${spec.extractedBytes}" +
-                "|need=$need|avail=$avail|ok=${avail >= need}"
+                "|vocoder=${spec.files.vocoderBytes}|need=$need|avail=$avail|ok=${avail >= need}"
         )
         return avail >= need
     }
@@ -141,6 +141,24 @@ class ModelDownloader(private val context: Context) {
                 progress.onError("解压产物缺少模型文件")
                 return
             }
+            if (s.files.vocoder.isNotEmpty() && s.files.vocoderUrl.isNotEmpty()) {
+                val vocPart = File(context.filesDir, "models-staging/${s.id}-${s.files.vocoder}.part")
+                val vocErr = downloadCompanionFile(s, vocPart, progress)
+                if (vocErr != null) {
+                    staging.deleteRecursively()
+                    if (cancelled) {
+                        progress.onCancelled(part.length(), s.downloadBytes)
+                    } else {
+                        progress.onError(vocErr)
+                    }
+                    return
+                }
+                val vocTarget = File(root, s.files.vocoder)
+                if (!vocPart.renameTo(vocTarget)) {
+                    vocPart.copyTo(vocTarget, overwrite = true)
+                    vocPart.delete()
+                }
+            }
             val finalDir = File(modelsDir(), s.id)
             SafeExtractor.promote(root, finalDir, "ok")
             ModelLayout.cleanupScaffold(staging, root)
@@ -154,6 +172,41 @@ class ModelDownloader(private val context: Context) {
         } finally {
             activeId = null
         }
+    }
+
+    /** 下载并校验独立附属文件（例如 Matcha-TTS 的 Vocos 声码器） */
+    private fun downloadCompanionFile(
+        spec: ModelSpec,
+        targetPart: File,
+        progress: Progress,
+    ): String? {
+        val rawUrl = spec.files.vocoderUrl
+        val vocSpec = spec.copy(
+            archiveName = spec.files.vocoder,
+            primaryUrl = rawUrl,
+            mirrorUrl = "https://ghfast.top/$rawUrl",
+            extraMirrors = listOf(
+                "https://hk.gh-proxy.com/$rawUrl",
+                "https://ghproxy.net/$rawUrl",
+            ),
+            downloadBytes = spec.files.vocoderBytes,
+            sha256 = spec.files.vocoderSha256,
+        )
+        val withCustom = com.kermond.ebook2tts.core.MirrorResolver.withCustomMirror(
+            vocSpec,
+            ConfigStore.mirrorBase(),
+        )
+        targetPart.parentFile?.mkdirs()
+        progress.onProgress(spec.downloadBytes, spec.downloadBytes, "download_vocoder")
+        if (!downloadWithSources(withCustom, targetPart, progress)) {
+            return if (cancelled) "已取消" else "声码器下载失败"
+        }
+        val sha = sha256(targetPart)
+        if (!sha.equals(spec.files.vocoderSha256, ignoreCase = true)) {
+            targetPart.delete()
+            return "声码器 SHA-256 校验失败"
+        }
+        return null
     }
 
     /** 多源下载：测速选优 → 顺序回退；返回是否成功落盘。 */

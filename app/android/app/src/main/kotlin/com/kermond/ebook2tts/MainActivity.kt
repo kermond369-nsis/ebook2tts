@@ -2,10 +2,15 @@ package com.kermond.ebook2tts
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import com.kermond.ebook2tts.core.OnlineSettings
+import com.kermond.ebook2tts.core.TtsProviderKind
 import com.kermond.ebook2tts.engine.ConfigStore
+import com.kermond.ebook2tts.engine.OnlineBackendHolder
+import com.kermond.ebook2tts.engine.OnlineRequest
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.Executors
 
 /**
  * 界面进程入口。
@@ -27,6 +32,9 @@ class MainActivity : FlutterActivity() {
     /** 诊断用：显式绑定本引擎的系统 TTS 客户端（仅用于对照朗读，不写配置、不改旁白） */
     private var diagTts: android.speech.tts.TextToSpeech? = null
     private var pendingSpeak: String? = null
+    private val probeExecutor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "provider-probe").apply { isDaemon = true }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -57,6 +65,65 @@ class MainActivity : FlutterActivity() {
                         com.kermond.ebook2tts.engine.ConfigStore.setRouteMode(mode)
                         com.kermond.ebook2tts.engine.ConfigStore.setRouteChosen(true)
                         result.success(mode.id)
+                    }
+                    "getOnlineProviderConfig" -> {
+                        val kind = ConfigStore.onlineProviderKind()
+                        result.success(
+                            mapOf(
+                                "providerKind" to kind.id,
+                                "baseUrl" to ConfigStore.onlineBaseUrl(),
+                                "model" to ConfigStore.onlineModel(),
+                                "voice" to ConfigStore.onlineVoice(),
+                                "responseFormat" to ConfigStore.onlineResponseFormat(),
+                                "sampleRate" to ConfigStore.onlineSampleRate(),
+                                "customHeaders" to ConfigStore.onlineCustomHeaders(),
+                                "customBodyTemplate" to ConfigStore.onlineCustomBodyTemplate(),
+                            )
+                        )
+                    }
+                    "setOnlineProviderConfig" -> {
+                        val kind = TtsProviderKind.parse(call.argument<String>("providerKind"))
+                        ConfigStore.setOnlineProviderKind(kind)
+                        call.argument<String>("baseUrl")?.let { ConfigStore.setOnlineBaseUrl(it) }
+                        call.argument<String>("model")?.let { ConfigStore.setOnlineModel(it) }
+                        call.argument<String>("voice")?.let { ConfigStore.setOnlineVoice(it) }
+                        call.argument<String>("responseFormat")?.let { ConfigStore.setOnlineResponseFormat(it) }
+                        call.argument<Int>("sampleRate")?.let { ConfigStore.setOnlineSampleRate(it) }
+                        call.argument<String>("customHeaders")?.let { ConfigStore.setOnlineCustomHeaders(it) }
+                        call.argument<String>("customBodyTemplate")?.let { ConfigStore.setOnlineCustomBodyTemplate(it) }
+                        ConfigStore.notifyReload(this, "system_provider_config")
+                        result.success("ok")
+                    }
+                    "validateOnlineProvider" -> {
+                        val overrideKey = call.argument<String>("apiKey")?.trim().orEmpty()
+                        val kind = ConfigStore.onlineProviderKind()
+                        val key = if (overrideKey.isNotEmpty()) overrideKey else ConfigStore.onlineApiKey().trim()
+                        val base = when (kind) {
+                            TtsProviderKind.MIMO -> OnlineSettings.resolveBaseUrl(
+                                ConfigStore.onlineKeyKind(),
+                                ConfigStore.onlineBaseUrl(),
+                            )
+                            TtsProviderKind.OPENAI_COMPAT -> ConfigStore.onlineBaseUrl().trim()
+                                .ifEmpty { TtsProviderKind.OPENAI_COMPAT.defaultBaseUrl }
+                            TtsProviderKind.CUSTOM_HTTP -> ConfigStore.onlineBaseUrl().trim()
+                        }
+                        val req = OnlineRequest(
+                            baseUrl = base,
+                            apiKey = key,
+                            model = ConfigStore.onlineModel().trim().ifEmpty { kind.defaultModel },
+                            voice = ConfigStore.onlineVoice().trim().ifEmpty { kind.defaultVoice },
+                            style = ConfigStore.onlineStyle(),
+                            providerKind = kind,
+                            responseFormat = ConfigStore.onlineResponseFormat(),
+                            sampleRate = ConfigStore.onlineSampleRate(),
+                            customHeaders = ConfigStore.onlineCustomHeaders(),
+                            customBodyTemplate = ConfigStore.onlineCustomBodyTemplate(),
+                        )
+                        probeExecutor.execute {
+                            val err = runCatching { OnlineBackendHolder.get().validate(req) }
+                                .getOrElse { it.message?.take(200) ?: "校验异常" }
+                            runOnUiThread { result.success(err) }
+                        }
                     }
                     "stopSample" -> {
                         diagTts?.stop()
@@ -117,6 +184,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         diagTts?.shutdown()
         diagTts = null
+        probeExecutor.shutdownNow()
         super.onDestroy()
     }
 

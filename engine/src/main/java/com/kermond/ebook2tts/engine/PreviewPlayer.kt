@@ -15,8 +15,10 @@ import com.kermond.ebook2tts.core.OnlineSettings
 import com.kermond.ebook2tts.core.OnlineVoiceMap
 import com.kermond.ebook2tts.core.PcmChunker
 import com.kermond.ebook2tts.core.SpeedMapper
+import com.kermond.ebook2tts.core.StreamingPcmResampler
 import com.kermond.ebook2tts.core.TextAnalyzer
 import com.kermond.ebook2tts.core.TextClean
+import com.kermond.ebook2tts.core.TtsProviderKind
 import com.kermond.ebook2tts.core.VoiceCatalog
 import java.io.File
 import java.util.concurrent.ExecutorService
@@ -103,41 +105,43 @@ class PreviewPlayer(private val context: Context) {
                 val voice = VoiceCatalog.resolve(pool, voiceId ?: ConfigStore.narratorVoice())
                 // P7 插桩（BUG-P7-016）：定位"首个请求 playing 之后迟迟不结束"的阻塞点
                 CoordinatorHolder.previewActive = true // P7：预览活跃标记（内存压力释放判定用）
-                val tTask = System.currentTimeMillis()
-                val tTrack = System.currentTimeMillis()
-                val trackOk = startTrack(backend.sampleRate, listener)
-                Log.i(TAG, "PREVIEW|track_open|ok=$trackOk|ms=${System.currentTimeMillis() - tTrack}")
-                val segments = TextAnalyzer.analyze(cleaned)
                 var doneSeg = 0
-                for (seg in segments) {
-                    if (!playing.get()) break
-                    if (seg.text.isBlank()) continue
-                    val spoken = seg.text
-                    val tSynth = System.currentTimeMillis()
-                    val pcm = backend.generatePcm(spoken, voice.speakerId, SpeedMapper.actualSpeed(100 * speed.toInt().coerceAtLeast(1), 0f).let {
-                        // speed here is already multiplier 0.5..2
-                        speed.coerceIn(0.5f, 2.0f)
-                    })
-                    Log.i(TAG, "PREVIEW|synth|chars=${spoken.length}|bytes=${pcm.size}|ms=${System.currentTimeMillis() - tSynth}")
-                    if (pcm.isNotEmpty() && playing.get()) {
-                        var i = 0
-                        val tWrite = System.currentTimeMillis()
-                        while (i < pcm.size && playing.get()) {
-                            val end = minOf(i + 4096, pcm.size)
-                            track?.write(pcm, i, end - i)
-                            i = end
+                val tTask = System.currentTimeMillis()
+                try {
+                    val tTrack = System.currentTimeMillis()
+                    val trackOk = startTrack(backend.sampleRate, listener)
+                    Log.i(TAG, "PREVIEW|track_open|ok=$trackOk|ms=${System.currentTimeMillis() - tTrack}")
+                    val segments = TextAnalyzer.analyze(cleaned)
+                    for (seg in segments) {
+                        if (!playing.get()) break
+                        if (seg.text.isBlank()) continue
+                        val spoken = seg.text
+                        val tSynth = System.currentTimeMillis()
+                        val pcm = backend.generatePcm(
+                            spoken,
+                            voice.speakerId,
+                            speed.coerceIn(SpeedMapper.MIN, SpeedMapper.MAX),
+                        )
+                        Log.i(TAG, "PREVIEW|synth|chars=${spoken.length}|bytes=${pcm.size}|ms=${System.currentTimeMillis() - tSynth}")
+                        if (pcm.isNotEmpty() && playing.get()) {
+                            var i = 0
+                            val tWrite = System.currentTimeMillis()
+                            while (i < pcm.size && playing.get()) {
+                                val end = minOf(i + 4096, pcm.size)
+                                track?.write(pcm, i, end - i)
+                                i = end
+                            }
+                            Log.i(TAG, "PREVIEW|write|bytes=$i/${pcm.size}|ms=${System.currentTimeMillis() - tWrite}|playing=${playing.get()}")
                         }
-                        Log.i(TAG, "PREVIEW|write|bytes=$i/${pcm.size}|ms=${System.currentTimeMillis() - tWrite}|playing=${playing.get()}")
+                        doneSeg++
+                        listener.onProgress((doneSeg * 100) / segments.size.coerceAtLeast(1))
                     }
-                    doneSeg++
-                    listener.onProgress((doneSeg * 100) / segments.size.coerceAtLeast(1))
+                } finally {
+                    CoordinatorHolder.previewActive = false
+                    if (owned) backend.release()
                 }
-                // fade out
-                CoordinatorHolder.previewActive = false
                 Log.i(TAG, "PREVIEW|segments_done|count=$doneSeg|total_ms=${System.currentTimeMillis() - tTask}")
                 runCatching { track?.stop() }
-                // P7 / R1：仅"自建实例"才在此释放；借用协调器的常驻后端一律不释放
-                if (owned) backend.release()
                 stop()
                 listener.onDone()
             } catch (t: Throwable) {
@@ -160,65 +164,88 @@ class PreviewPlayer(private val context: Context) {
         speed: Float,
         voiceHint: String?,
     ): Boolean {
-        val choice = selectOnline(voiceHint)
-        if (lastOnlyOnlineBlock != null) {
-            Log.e(TAG, "ONLINE|only_online_blocked|preview_abort|reason=$lastOnlyOnlineBlock")
-            return false
+        val route = resolveOnlineRoute(voiceHint)
+        OnlineSelector.hardBlockReason(route.choice)?.let { blockReason ->
+            Log.e(TAG, "ONLINE|only_online_blocked|preview_abort|reason=$blockReason")
+            playing.set(false)
+            listener.onError(-4, "仅在线模式不可用：$blockReason")
+            return true
         }
-        if (choice == null) return false
+        val choice = route.choice as? BackendChoice.Online ?: return false
         val request = choice.request
         Log.i(
             TAG,
-            "ONLINE|chosen=online|model=${request.model}|voice=${request.voice}" +
-                "|sr=${OnlineSettings.SAMPLE_RATE}"
+            "ONLINE|chosen=online|provider=${request.providerKind.id}|model=${request.model}" +
+                "|voice=${request.voice}|sr=${request.sampleRate}"
         )
         choice.warning?.let { Log.w(TAG, "ONLINE|warn=key_kind_mismatch|$it") }
 
-        // 角色精标输入（ADR-013）：试听内容是用户"听到"的正文，同样应作为角色分析输入
-        // （否则只有系统朗读路径会积累角色，试听多角色永远走不到 voicedesign）。
-        // 注意：offerExcerpt 内部走后台线程 + 限频，本线程零阻塞。
-        runCatching {
-            val cands = TextAnalyzer.analyze(cleaned).mapNotNull { seg ->
-                seg.speakerHint?.trim()?.takeIf { it.isNotEmpty() }
+        // 角色精标输入（ADR-013）：仅支持角色造音色的引擎记录候选输入
+        if (request.roleEnabled) {
+            runCatching {
+                val cands = TextAnalyzer.analyze(cleaned).mapNotNull { seg ->
+                    seg.speakerHint?.trim()?.takeIf { it.isNotEmpty() }
+                }
+                if (cands.isNotEmpty()) RoleRegistry.offerExcerpt(cleaned, cands)
             }
-            if (cands.isNotEmpty()) RoleRegistry.offerExcerpt(cleaned, cands)
         }
 
-        // 在线语速（RQ-508 / ADR-014）：试听同样在本机做变速不变调（与系统朗读路径同语义）
+        // 在线语速（RQ-508 / ADR-014）：若服务端不支持原生语速，则在本机做变速不变调
         val stretchSpeed = speed.coerceIn(0.5f, 2.0f)
-        val stretcher = if (PcmSpeedStretcher.isNoop(stretchSpeed)) null else PcmSpeedStretcher(stretchSpeed)
+        val useStretcher = !request.usesNativeSpeed() && !PcmSpeedStretcher.isNoop(stretchSpeed)
+        val stretcher = if (useStretcher) PcmSpeedStretcher(stretchSpeed) else null
         val segments = TextAnalyzer.analyze(cleaned)
         var doneSeg = 0
         var trackFailed = false
         var anyPcm = false
+        var trackSr = 0
         val designedLogged = HashSet<String>()
         for (seg in segments) {
             if (!playing.get()) return true
             if (seg.text.isBlank()) continue
             // 角色音色（RQ-507）：试听同样按角色档案走 voicedesign（可区分即可，允许偏差）
             val roleName = seg.speakerHint?.trim()?.takeIf { it.isNotEmpty() }
-            val plan = OnlineSegmentPlanner.plan(
-                baseModel = request.model,
-                baseVoice = request.voice,
-                baseStyle = request.style,
-                roleEnabled = request.roleEnabled,
-                roleName = roleName,
-                design = roleName?.let { request.roles[it] },
-            )
-            if (plan.useDesign && roleName != null && designedLogged.add(roleName)) {
+            val plan = if (request.providerKind.supportsRoleVoiceDesign) {
+                OnlineSegmentPlanner.plan(
+                    baseModel = request.model,
+                    baseVoice = request.voice,
+                    baseStyle = request.style,
+                    roleEnabled = request.roleEnabled,
+                    roleName = roleName,
+                    design = roleName?.let { request.roles[it] },
+                )
+            } else {
+                null
+            }
+            if (plan?.useDesign == true && roleName != null && designedLogged.add(roleName)) {
                 Log.i(TAG, "ONLINE|role=$roleName|design=1|model=${plan.model}|preview=1")
             }
-            val outcome = OnlineBackendHolder.get().synthesize(
-                request = request.forSegment(plan),
+            val segRequest = plan?.let { request.forSegment(it) } ?: request
+            var segResampler: StreamingPcmResampler? = null
+            val outcome = OnlineBackendHolder.get().synthesizeChunks(
+                request = segRequest,
                 text = seg.text,
-                onPcm = onPcm@{ raw ->
-                    if (!playing.get()) return@onPcm false
-                    if (track == null && !startTrack(OnlineSettings.SAMPLE_RATE, listener)) {
-                        trackFailed = true
-                        return@onPcm false
+                speed = stretchSpeed,
+                onChunk = onChunk@{ chunk ->
+                    if (!playing.get()) return@onChunk false
+                    val chunkSr = if (chunk.sampleRate > 0) chunk.sampleRate else request.sampleRate
+                    if (track == null) {
+                        trackSr = chunkSr
+                        if (!startTrack(trackSr, listener)) {
+                            trackFailed = true
+                            return@onChunk false
+                        }
                     }
-                    val pcm = stretcher?.process(raw, OnlineSettings.SAMPLE_RATE) ?: raw
-                    if (pcm.isEmpty()) return@onPcm playing.get()
+                    val activeSr = if (trackSr > 0) trackSr else chunkSr
+                    val aligned = if (chunkSr != activeSr) {
+                        segResampler = segResampler ?: StreamingPcmResampler(chunkSr, activeSr)
+                        segResampler!!.process(chunk.pcm16Mono)
+                    } else {
+                        chunk.pcm16Mono
+                    }
+                    if (aligned.isEmpty()) return@onChunk playing.get()
+                    val pcm = stretcher?.process(aligned, activeSr) ?: aligned
+                    if (pcm.isEmpty()) return@onChunk playing.get()
                     anyPcm = true
                     runCatching { track?.write(pcm, 0, pcm.size) }
                     playing.get()
@@ -227,6 +254,12 @@ class PreviewPlayer(private val context: Context) {
             )
             when (outcome) {
                 is OnlineOutcome.Ok -> {
+                    val tailResampled = segResampler?.flush()?.takeIf { it.isNotEmpty() }
+                    if (tailResampled != null && playing.get()) {
+                        val activeSr = if (trackSr > 0) trackSr else request.sampleRate
+                        val pcm = stretcher?.process(tailResampled, activeSr) ?: tailResampled
+                        if (pcm.isNotEmpty()) runCatching { track?.write(pcm, 0, pcm.size) }
+                    }
                     doneSeg++
                     listener.onProgress((doneSeg * 100) / segments.size.coerceAtLeast(1))
                 }
@@ -235,6 +268,18 @@ class PreviewPlayer(private val context: Context) {
                     return true
                 }
                 is OnlineOutcome.Failed -> {
+                    if (!route.routeMode.allowsLocal) {
+                        Log.e(
+                            TAG,
+                            "ONLINE|only_online_failed|preview|reason=${outcome.reason}" +
+                                "|summary=${outcome.summary.take(160)}"
+                        )
+                        releaseTrack()
+                        abandonFocus()
+                        playing.set(false)
+                        listener.onError(-4, "在线合成失败：${outcome.summary.take(120)}")
+                        return true
+                    }
                     Log.w(
                         TAG,
                         "ONLINE|fallback=local|reason=${outcome.reason}" +
@@ -281,52 +326,65 @@ class PreviewPlayer(private val context: Context) {
         return mapped
     }
 
-    /** RQ-513：上次「仅在线」硬阻断原因（非空 ⇒ 调用点须如实报错，不得静默走本地） */
-    @Volatile
-    private var lastOnlyOnlineBlock: String? = null
+    private data class OnlineRoute(val routeMode: RouteMode, val choice: BackendChoice)
 
-    private fun selectOnline(voiceHint: String?): BackendChoice.Online? {
+    private fun resolveOnlineRoute(voiceHint: String?): OnlineRoute {
         // RQ-513 路由模式：仅本地 ⇒ 不触网
         val routeMode = ConfigStore.routeMode()
         if (routeMode == RouteMode.ONLY_LOCAL) {
             Log.i(TAG, "ROUTE|only_local|skip_online")
-            return null
+            return OnlineRoute(routeMode, BackendChoice.Local("only_local"))
         }
-        if (!ConfigStore.onlineEnabled()) return null
-        // 角色音色（RQ-507）：请求级一次性快照（试听同样适用）
-        val roleEnabled = ConfigStore.roleVoiceEnabled()
+        val localAvailable = ModelPresence.isActiveModelInstalled(context)
+        if (routeMode == RouteMode.PREFER_LOCAL && localAvailable) {
+            return OnlineRoute(routeMode, BackendChoice.Local("prefer_local"))
+        }
+        if (!ConfigStore.onlineEnabled()) {
+            val choice = if (routeMode == RouteMode.ONLY_ONLINE) {
+                BackendChoice.Local("${OnlineSelector.ONLY_ONLINE_BLOCKED_PREFIX}online_disabled")
+            } else {
+                BackendChoice.Local("online_disabled")
+            }
+            return OnlineRoute(routeMode, choice)
+        }
+        // 角色音色（RQ-507）：请求级一次性快照（仅支持角色造音色的引擎启用）
+        val providerKind = ConfigStore.onlineProviderKind()
+        val roleEnabled = providerKind.supportsRoleVoiceDesign && ConfigStore.roleVoiceEnabled()
         val roles = if (roleEnabled) RoleRegistry.snapshot() else emptyMap()
-        // 在线音色映射（P6 / IM-517）：不再写死 ConfigStore.onlineVoice()（默认白桦＝男声）
-        val mapped = mappedOnlineVoice(voiceHint)
-        return when (
-            val choice = OnlineSelector.select(
-                onlineEnabled = true, // 已在上层短路（在线关闭零额外动作）
-                apiKey = ConfigStore.onlineApiKey(),
-                keyKind = ConfigStore.onlineKeyKind(),
-                baseUrl = ConfigStore.onlineBaseUrl(),
-                model = ConfigStore.onlineModel(),
-                voice = mapped,
-                style = ConfigStore.onlineStyle(),
-                tokenPlanAccepted = ConfigStore.onlineTokenPlanAccepted(),
-                allowMobileData = ConfigStore.netAllowMobileData(),
-                onCellular = NetState.onCellular(context),
-                roleEnabled = roleEnabled,
-                roles = roles,
-                routeMode = routeMode,
-                localModelAvailable = true,   // 同协调器：见 TODO-P7 ②c
-            )
-        ) {
-            is BackendChoice.Online -> choice
-            is BackendChoice.Local -> {
-                if (routeMode == RouteMode.ONLY_ONLINE) {
-                    lastOnlyOnlineBlock = OnlineSelector.hardBlockReason(choice) ?: choice.reason
-                    Log.e(TAG, "ONLINE|only_online_blocked|reason=${choice.reason}")
-                    return null
-                }
+        val onlineVoice = if (providerKind == TtsProviderKind.MIMO) {
+            mappedOnlineVoice(voiceHint)
+        } else {
+            ConfigStore.onlineVoice().trim().ifEmpty { providerKind.defaultVoice }
+        }
+        val choice = OnlineSelector.select(
+            onlineEnabled = true, // 已在上层短路（在线关闭零额外动作）
+            apiKey = ConfigStore.onlineApiKey(),
+            keyKind = ConfigStore.onlineKeyKind(),
+            baseUrl = ConfigStore.onlineBaseUrl(),
+            model = ConfigStore.onlineModel(),
+            voice = onlineVoice,
+            style = ConfigStore.onlineStyle(),
+            tokenPlanAccepted = ConfigStore.onlineTokenPlanAccepted(),
+            allowMobileData = ConfigStore.netAllowMobileData(),
+            onCellular = NetState.onCellular(context),
+            roleEnabled = roleEnabled,
+            roles = roles,
+            routeMode = routeMode,
+            localModelAvailable = localAvailable,
+            providerKind = providerKind,
+            responseFormat = ConfigStore.onlineResponseFormat(),
+            sampleRate = ConfigStore.onlineSampleRate(),
+            customHeaders = ConfigStore.onlineCustomHeaders(),
+            customBodyTemplate = ConfigStore.onlineCustomBodyTemplate(),
+        )
+        if (choice is BackendChoice.Local) {
+            if (routeMode == RouteMode.ONLY_ONLINE) {
+                Log.e(TAG, "ONLINE|only_online_blocked|reason=${choice.reason}")
+            } else {
                 Log.i(TAG, "ONLINE|fallback=local|reason=${choice.reason}")
-                null
             }
         }
+        return OnlineRoute(routeMode, choice)
     }
 
     /** 建立播放轨（焦点 + onStart 通知 + AudioTrack 创建并起播）；返回轨道是否就绪 */

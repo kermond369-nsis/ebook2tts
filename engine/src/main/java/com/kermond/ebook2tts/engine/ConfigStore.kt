@@ -6,6 +6,7 @@ import android.util.Log
 import com.kermond.ebook2tts.core.ModelCatalog
 import com.kermond.ebook2tts.core.RouteMode
 import com.kermond.ebook2tts.core.OnlineSettings
+import com.kermond.ebook2tts.core.TtsProviderKind
 import com.kermond.ebook2tts.core.VoiceCatalog
 import com.tencent.mmkv.MMKV
 import com.kermond.ebook2tts.core.InferenceThreads
@@ -159,6 +160,38 @@ object ConfigStore {
     fun onlineTokenPlanAccepted(): Boolean = kv().decodeBool("online.tokenPlanAccepted", false)
     fun setOnlineTokenPlanAccepted(v: Boolean) {
         kv().encode("online.tokenPlanAccepted", v)
+    }
+
+    /** 通用在线引擎类型（mimo / openai / custom_http） */
+    fun onlineProviderKind(): TtsProviderKind =
+        TtsProviderKind.parse(kv().decodeString("online.providerKind", TtsProviderKind.DEFAULT.id))
+
+    fun setOnlineProviderKind(kind: TtsProviderKind) {
+        kv().encode("online.providerKind", kind.id)
+    }
+
+    /** 期待响应音频格式（pcm / wav / mp3 / opus / auto） */
+    fun onlineResponseFormat(): String = kv().decodeString("online.responseFormat", "pcm")!!
+    fun setOnlineResponseFormat(fmt: String) {
+        kv().encode("online.responseFormat", fmt.trim().lowercase().ifEmpty { "pcm" })
+    }
+
+    /** PCM 无头流采样率（默认 24000Hz） */
+    fun onlineSampleRate(): Int = kv().decodeInt("online.sampleRate", OnlineSettings.SAMPLE_RATE)
+    fun setOnlineSampleRate(sr: Int) {
+        kv().encode("online.sampleRate", if (sr > 0) sr else OnlineSettings.SAMPLE_RATE)
+    }
+
+    /** 自定义 HTTP 请求头（每行 Key: Value） */
+    fun onlineCustomHeaders(): String = kv().decodeString("online.customHeaders", "")!!
+    fun setOnlineCustomHeaders(h: String) {
+        kv().encode("online.customHeaders", h.trim())
+    }
+
+    /** 自定义 HTTP JSON 请求体模板 */
+    fun onlineCustomBodyTemplate(): String = kv().decodeString("online.customBodyTemplate", "")!!
+    fun setOnlineCustomBodyTemplate(tpl: String) {
+        kv().encode("online.customBodyTemplate", tpl.trim())
     }
 
     // ---- 在线角色音色 / 角色精标（RQ-507 / ADR-013）----

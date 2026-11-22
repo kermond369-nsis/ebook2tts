@@ -39,6 +39,15 @@ class VoiceCatalogTest {
     fun vits5() {
         assertEquals(5, VoiceCatalog.vitsZhLlVoices().size)
     }
+
+    @Test
+    fun kokoro_displayNamesUnique_andMatchaPoolExists() {
+        val kokoro = VoiceCatalog.kokoroVoices()
+        assertEquals(kokoro.size, kokoro.map { it.displayName }.distinct().size)
+        val matcha = VoiceCatalog.poolForModel("matcha-zh-en")
+        assertEquals(1, matcha.size)
+        assertEquals("matcha_0", matcha[0].id)
+    }
 }
 
 class RoleAssignerTest {
@@ -121,7 +130,7 @@ class ModelCatalogTest {
     fun builtinManifest_isWellFormed() {
         val m = ModelCatalog.manifest()
         assertEquals(ModelCatalog.BUILTIN_MANIFEST_VERSION, m.version)
-        assertEquals(listOf("kokoro-int8", "vits-zh-ll", "kokoro-fp32"), m.models.map { it.id })
+        assertEquals(listOf("kokoro-int8", "matcha-zh-en", "vits-zh-ll", "kokoro-fp32"), m.models.map { it.id })
         assertEquals(ModelCatalog.DEFAULT_ID, m.byId(ModelCatalog.DEFAULT_ID)?.id)
         // 每个模型都必须有可测速的源，且主源为 https
         for (spec in m.models) {
@@ -285,6 +294,16 @@ class SpeedMapperTest {
         // emotion limited ±10%
         assertEquals(1.1f, SpeedMapper.actualSpeed(100, 0.5f), 1e-4f)
         assertEquals(0.9f, SpeedMapper.actualSpeed(100, -0.5f), 1e-4f)
+    }
+
+    @Test
+    fun resolveSpeed_respectsModeAndAppFallback() {
+        // readerFirst 且阅读器未调速(100) ⇒ 采用 App 滑杆语速 1.4x
+        assertEquals(1.4f, SpeedMapper.resolveSpeed(100, 1.4f, "readerFirst"), 1e-4f)
+        // readerFirst 且阅读器显式调速(150) ⇒ 跟随阅读器 1.5x
+        assertEquals(1.5f, SpeedMapper.resolveSpeed(150, 1.2f, "readerFirst"), 1e-4f)
+        // appFirst ⇒ 忽略阅读器 150，采用 App 1.2x
+        assertEquals(1.2f, SpeedMapper.resolveSpeed(150, 1.2f, "appFirst"), 1e-4f)
     }
 }
 

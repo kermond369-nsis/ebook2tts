@@ -4,12 +4,14 @@ import android.util.Log
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
+import com.k2fsa.sherpa.onnx.OfflineTtsMatchaModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import com.kermond.ebook2tts.core.ModelSpec
 import com.kermond.ebook2tts.core.SynthPcmCache
 import com.kermond.ebook2tts.core.PcmChunker
 import com.kermond.ebook2tts.core.ProcessNames
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -30,6 +32,7 @@ class SherpaBackend(
     private val cache = SynthPcmCache()
     companion object {
         private const val TAG = "SherpaBackend"
+        private const val STREAM_CACHE_CHUNK = 8192
     }
 
     private var tts: OfflineTts? = null
@@ -66,8 +69,8 @@ class SherpaBackend(
                 if (names.isEmpty()) ""
                 else names.split(",").joinToString(",") { File(modelDir, it.trim()).absolutePath }
 
-            val modelCfg = if (spec.files.kind == "kokoro") {
-                OfflineTtsModelConfig(
+            val modelCfg = when (spec.files.kind) {
+                "kokoro" -> OfflineTtsModelConfig(
                     vits = OfflineTtsVitsModelConfig(
                         model = "",
                         lexicon = "",
@@ -81,21 +84,41 @@ class SherpaBackend(
                         tokens = abs(spec.files.tokens),
                         dataDir = abs(spec.files.dataDir),
                         lexicon = absList(spec.files.lexicon),
-                        lang = "zh",
-                        dictDir = "",
+                        lang = spec.files.lang,
+                        dictDir = abs(spec.files.dictDir),
                         lengthScale = 1.0f,
                     ),
                     numThreads = numThreads,
                     provider = "cpu",
                 )
-            } else {
-                OfflineTtsModelConfig(
+                "matcha" -> OfflineTtsModelConfig(
+                    vits = OfflineTtsVitsModelConfig(
+                        model = "",
+                        lexicon = "",
+                        tokens = "",
+                        dataDir = "",
+                        dictDir = "",
+                    ),
+                    matcha = OfflineTtsMatchaModelConfig(
+                        acousticModel = abs(spec.files.modelName),
+                        vocoder = abs(spec.files.vocoder),
+                        lexicon = absList(spec.files.lexicon),
+                        tokens = abs(spec.files.tokens),
+                        dataDir = abs(spec.files.dataDir),
+                        dictDir = abs(spec.files.dictDir),
+                        noiseScale = 0.667f,
+                        lengthScale = 1.0f,
+                    ),
+                    numThreads = numThreads,
+                    provider = "cpu",
+                )
+                else -> OfflineTtsModelConfig(
                     vits = OfflineTtsVitsModelConfig(
                         model = abs(spec.files.modelName),
                         lexicon = absList(spec.files.lexicon),
                         tokens = abs(spec.files.tokens),
                         dataDir = abs(spec.files.dataDir),
-                        dictDir = "",
+                        dictDir = abs(spec.files.dictDir),
                         lengthScale = 1.0f,
                     ),
                     numThreads = numThreads,
@@ -105,7 +128,9 @@ class SherpaBackend(
             val config = OfflineTtsConfig(
                 model = modelCfg,
                 ruleFsts = absList(spec.files.ruleFsts),
-                ruleFars = "",
+                ruleFars = absList(spec.files.ruleFars),
+                maxNumSentences = 1,
+                silenceScale = 0.15f,
             )
             val engine = OfflineTts(config = config)
             tts = engine
@@ -120,8 +145,51 @@ class SherpaBackend(
 
     private fun modelReady(): Boolean {
         val model = File(modelDir, spec.files.modelName)
-        return model.exists() && model.length() > 0
-        // .completed 可由迁移回填；有模型文件即可尝试加载
+        if (!model.exists() || model.length() <= 0L) return false
+        if (spec.files.vocoder.isNotEmpty()) {
+            val voc = File(modelDir, spec.files.vocoder)
+            if (!voc.exists() || voc.length() <= 0L) return false
+        }
+        return true
+        // .completed 可由迁移回填；有模型文件（及必需声码器）即可尝试加载
+    }
+
+    /**
+     * 逐段生成并接入内存 LRU 缓存（ADR-019）：
+     * 命中缓存时直接按块回放、无需进 NativeGate 锁；未命中时流式出块并同步记录写入缓存。
+     */
+    fun generateStreamingCached(
+        text: String,
+        speakerId: Int,
+        speed: Float,
+        onPcm: (ByteArray) -> Boolean,
+    ): Boolean {
+        if (text.isBlank()) return false
+        val key = SynthPcmCache.keyFor(spec.id, speakerId, speed, text)
+        cache.get(key)?.let { cached ->
+            Log.i(TAG, "CACHE|stream_hit|model=${spec.id}|spk=$speakerId|bytes=${cached.size}")
+            var offset = 0
+            while (offset < cached.size) {
+                val end = minOf(offset + STREAM_CACHE_CHUNK, cached.size)
+                val slice = if (offset == 0 && end == cached.size) cached else cached.copyOfRange(offset, end)
+                if (!onPcm(slice)) return true
+                offset = end
+            }
+            return false
+        }
+        val buf = ByteArrayOutputStream()
+        val stopped = generateStreaming(text, speakerId, speed) { samples ->
+            val pcm = PcmChunker.floatToPcm16(samples)
+            if (pcm.isEmpty()) return@generateStreaming true
+            if (buf.size() + pcm.size <= SynthPcmCache.DEFAULT_MAX_BYTES / 4) {
+                buf.write(pcm)
+            }
+            onPcm(pcm)
+        }
+        if (!stopped && buf.size() > 0) {
+            cache.put(key, buf.toByteArray())
+        }
+        return stopped
     }
 
     /**

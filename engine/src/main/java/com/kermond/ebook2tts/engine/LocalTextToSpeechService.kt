@@ -32,6 +32,9 @@ class LocalTextToSpeechService : TextToSpeechService() {
         // P7 / R1：协调器改为**进程级单例**（预览通道可能先于 TTS 服务被拉起），
         // 首个创建者触发一次预热；此后预览与系统朗读共享同一常驻后端。
         coordinator = CoordinatorHolder.getOrCreate(this)
+        if (ConfigStore.routeMode().allowsLocal) {
+            coordinator.ensureWarmIfIdleReleased()
+        }
         ConfigStore.setStatusState("INITIALIZING")
         ConfigStore.notifyStatus(this, "INIT")
 
@@ -81,12 +84,19 @@ class LocalTextToSpeechService : TextToSpeechService() {
         }
     }
 
+    private fun isServiceAvailable(): Boolean {
+        val mode = ConfigStore.routeMode()
+        val localOk = mode.allowsLocal &&
+            (ConfigStore.statusState() != "NO_MODEL" || ModelPresence.isActiveModelInstalled(this))
+        return localOk || ModelPresence.isOnlineConfigured()
+    }
+
     override fun onIsLanguageAvailable(lang: String?, country: String?, variant: String?): Int {
-        val hasModel = ConfigStore.statusState() != "NO_MODEL"
+        val available = isServiceAvailable()
         val l = lang ?: ""
         return when {
             l.equals("zho", true) || l.equals("chi", true) || l.equals("zh", true) -> {
-                if (!hasModel) TextToSpeech.LANG_MISSING_DATA
+                if (!available) TextToSpeech.LANG_MISSING_DATA
                 else if (country.isNullOrBlank() ||
                     country.equals("CN", true) ||
                     country.equals("Hans", true)
@@ -94,7 +104,7 @@ class LocalTextToSpeechService : TextToSpeechService() {
                 else TextToSpeech.LANG_COUNTRY_AVAILABLE
             }
             l.equals("eng", true) || l.equals("en", true) -> {
-                if (!hasModel) TextToSpeech.LANG_MISSING_DATA
+                if (!available) TextToSpeech.LANG_MISSING_DATA
                 else TextToSpeech.LANG_COUNTRY_AVAILABLE
             }
             else -> TextToSpeech.LANG_NOT_SUPPORTED
@@ -111,7 +121,7 @@ class LocalTextToSpeechService : TextToSpeechService() {
     }
 
     override fun onGetVoices(): List<Voice> {
-        if (ConfigStore.statusState() == "NO_MODEL") return emptyList()
+        if (!isServiceAvailable()) return emptyList()
         val modelId = ConfigStore.modelId()
         val pool = VoiceCatalog.poolForModel(modelId)
         val quality = if (modelId.startsWith("kokoro")) Voice.QUALITY_HIGH else Voice.QUALITY_NORMAL
@@ -133,14 +143,14 @@ class LocalTextToSpeechService : TextToSpeechService() {
     }
 
     override fun onIsValidVoiceName(voiceName: String?): Int {
-        if (ConfigStore.statusState() == "NO_MODEL") return TextToSpeech.ERROR
+        if (!isServiceAvailable()) return TextToSpeech.ERROR
         val pool = VoiceCatalog.poolForModel(ConfigStore.modelId())
         return if (VoiceCatalog.isValid(pool, voiceName)) TextToSpeech.SUCCESS
         else TextToSpeech.ERROR
     }
 
     override fun onLoadVoice(voiceName: String?): Int {
-        if (ConfigStore.statusState() == "NO_MODEL") return TextToSpeech.ERROR
+        if (!isServiceAvailable()) return TextToSpeech.ERROR
         return onIsValidVoiceName(voiceName)
     }
 
@@ -149,7 +159,7 @@ class LocalTextToSpeechService : TextToSpeechService() {
         country: String?,
         variant: String?,
     ): String? {
-        if (ConfigStore.statusState() == "NO_MODEL") return null
+        if (!isServiceAvailable()) return null
         // 返回**展示名**（与 onGetVoices 一致）
         val pool = VoiceCatalog.poolForModel(ConfigStore.modelId())
         return VoiceCatalog.resolve(pool, ConfigStore.narratorVoice()).displayName

@@ -11,10 +11,20 @@ object NumberReader {
             ?: return head
         val num = m.groupValues[1]
         val unit = m.groupValues[2]
-        return "第${readNumber(num.toLong())}$unit"
+        val spoken = num.toLongOrNull()?.let(::readNumber) ?: readDigits(num)
+        return "第$spoken$unit"
+    }
+
+    private fun readDigits(digits: String): String {
+        val sb = StringBuilder(digits.length)
+        for (ch in digits) {
+            if (ch in '0'..'9') sb.append(DIGITS[ch - '0'])
+        }
+        return sb.toString()
     }
 
     fun readNumber(n: Long): String {
+        if (n == Long.MIN_VALUE) return "负${readDigits("9223372036854775808")}"
         if (n < 0) return "负${readNumber(-n)}"
         if (n < 10) return DIGITS[n.toInt()].toString()
         if (n < 20) return if (n == 10L) "十" else "十${DIGITS[(n % 10).toInt()]}"
@@ -24,7 +34,7 @@ object NumberReader {
             return if (ones == 0) "${DIGITS[tens]}十"
             else "${DIGITS[tens]}十${DIGITS[ones]}"
         }
-        if (n < 10_000) {
+        if (n < 1_000) {
             val hundreds = (n / 100).toInt()
             val rest = n % 100
             val sb = StringBuilder()
@@ -37,13 +47,42 @@ object NumberReader {
             }
             return sb.toString()
         }
-        // 简化：万及以上按位读
-        val wan = n / 10_000
-        val rest = n % 10_000
-        val head = readNumber(wan) + "万"
-        return if (rest == 0L) head
-        else if (rest < 1000) head + "零" + readNumber(rest)
-        else head + readNumber(rest)
+        if (n < 10_000) {
+            val thousands = (n / 1_000).toInt()
+            val rest = n % 1_000
+            val sb = StringBuilder()
+            sb.append(DIGITS[thousands]).append('千')
+            when {
+                rest == 0L -> Unit
+                rest < 10 -> sb.append('零').append(DIGITS[rest.toInt()])
+                rest < 20 -> sb.append("零一").append(readNumber(rest))
+                rest < 100 -> sb.append('零').append(readNumber(rest))
+                else -> sb.append(readNumber(rest))
+            }
+            return sb.toString()
+        }
+        if (n < 100_000_000L) {
+            val wan = n / 10_000
+            val rest = n % 10_000
+            val head = readNumber(wan) + "万"
+            return when {
+                rest == 0L -> head
+                rest < 10 -> "${head}零${DIGITS[rest.toInt()]}"
+                rest < 20 -> "${head}零一${readNumber(rest)}"
+                rest < 1_000 -> "${head}零${readNumber(rest)}"
+                else -> "$head${readNumber(rest)}"
+            }
+        }
+        val yi = n / 100_000_000L
+        val rest = n % 100_000_000L
+        val head = readNumber(yi) + "亿"
+        return when {
+            rest == 0L -> head
+            rest < 10 -> "${head}零${DIGITS[rest.toInt()]}"
+            rest < 20 -> "${head}零一${readNumber(rest)}"
+            rest < 10_000_000L -> "${head}零${readNumber(rest)}"
+            else -> "$head${readNumber(rest)}"
+        }
     }
 
     /** 行内阿拉伯数字基础读法：128 → 一百二十八；2.5 → 二点五 */
@@ -62,7 +101,15 @@ object NumberReader {
                     sb.append(readDecimal(token))
                 } else {
                     val token = text.substring(start, i)
-                    sb.append(readNumber(token.toLongOrNull() ?: 0L))
+                    val isFourDigitYear = token.length == 4 &&
+                        (token.startsWith("1") || token.startsWith("20")) &&
+                        i < text.length && text[i] == '年'
+                    val spoken = if (isFourDigitYear) {
+                        readDigits(token)
+                    } else {
+                        token.toLongOrNull()?.let(::readNumber) ?: readDigits(token)
+                    }
+                    sb.append(spoken)
                 }
             } else {
                 sb.append(c)
@@ -74,9 +121,10 @@ object NumberReader {
 
     private fun readDecimal(token: String): String {
         val parts = token.split('.')
-        val intPart = parts[0].toLongOrNull() ?: 0L
+        val rawInt = parts[0]
+        val intSpoken = rawInt.toLongOrNull()?.let(::readNumber) ?: readDigits(rawInt)
         val frac = parts.getOrNull(1).orEmpty()
-        val sb = StringBuilder(readNumber(intPart))
+        val sb = StringBuilder(intSpoken)
         if (frac.isNotEmpty()) {
             sb.append('点')
             for (ch in frac) {

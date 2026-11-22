@@ -51,6 +51,16 @@ object ManifestCodec {
         val f = o.getJSONObject("files")
         val kind = f.getString("kind").trim().also { require(it.isNotEmpty()) { "files.kind empty" } }
         val modelName = f.getString("model").trim().also { require(it.isNotEmpty()) { "files.model empty" } }
+        val vocoder = f.optString("vocoder", "").trim()
+        val vocoderUrl = f.optString("vocoderUrl", "").trim()
+        val vocoderSha256 = f.optString("vocoderSha256", "").trim().lowercase()
+        val vocoderBytes = f.optLong("vocoderBytes", 0L)
+        if (vocoderUrl.isNotEmpty()) {
+            requireHttps(vocoderUrl)
+            require(vocoder.isNotEmpty()) { "files.vocoder empty" }
+            require(ModelLimits.SHA256.matches(vocoderSha256)) { "vocoderSha256 malformed" }
+            require(vocoderBytes in 1..ModelLimits.MAX_BYTES) { "vocoderBytes=$vocoderBytes" }
+        }
         return ModelSpec(
             id = id,
             label = o.optString("label", id),
@@ -68,7 +78,14 @@ object ManifestCodec {
                 voices = f.optString("voices", ""),
                 lexicon = f.optString("lexicon", ""),
                 dataDir = f.optString("dataDir", ""),
+                dictDir = f.optString("dictDir", ""),
                 ruleFsts = f.optString("ruleFsts", ""),
+                ruleFars = f.optString("ruleFars", ""),
+                vocoder = vocoder,
+                vocoderUrl = vocoderUrl,
+                vocoderSha256 = vocoderSha256,
+                vocoderBytes = vocoderBytes,
+                lang = f.optString("lang", ""),
                 tokens = f.optString("tokens", "tokens.txt"),
             ),
             recommended = o.optBoolean("recommended", false),

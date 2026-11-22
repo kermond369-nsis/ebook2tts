@@ -82,6 +82,112 @@ class SystemBridge {
       return null;
     }
   }
+
+  /// 读取通用在线 TTS 引擎配置（`mimo` / `openai` / `custom_http`）。
+  static Future<OnlineProviderConfig?> getOnlineProviderConfig() async {
+    try {
+      final m = await _channel
+          .invokeMethod<Map<Object?, Object?>>('getOnlineProviderConfig');
+      if (m == null) return null;
+      return OnlineProviderConfig(
+        providerKind: (m['providerKind'] as String?) ?? 'mimo',
+        baseUrl: (m['baseUrl'] as String?) ?? '',
+        model: (m['model'] as String?) ?? '',
+        voice: (m['voice'] as String?) ?? '',
+        responseFormat: (m['responseFormat'] as String?) ?? 'pcm',
+        sampleRate: (m['sampleRate'] as num?)?.toInt() ?? 24000,
+        customHeaders: (m['customHeaders'] as String?) ?? '',
+        customBodyTemplate: (m['customBodyTemplate'] as String?) ?? '',
+      );
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  /// 保存通用在线 TTS 引擎配置并通知 `:tts_service` 热重载。
+  static Future<bool> setOnlineProviderConfig(OnlineProviderConfig cfg) async {
+    try {
+      final res = await _channel.invokeMethod<String>(
+        'setOnlineProviderConfig',
+        <String, Object>{
+          'providerKind': cfg.providerKind,
+          'baseUrl': cfg.baseUrl,
+          'model': cfg.model,
+          'voice': cfg.voice,
+          'responseFormat': cfg.responseFormat,
+          'sampleRate': cfg.sampleRate,
+          'customHeaders': cfg.customHeaders,
+          'customBodyTemplate': cfg.customBodyTemplate,
+        },
+      );
+      return res == 'ok';
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
+  /// 探测当前配置的在线 TTS 引擎连通性（null = 通过，否则为脱敏错误摘要）。
+  static Future<String?> validateOnlineProvider({String? apiKey}) async {
+    try {
+      return await _channel.invokeMethod<String>(
+        'validateOnlineProvider',
+        <String, Object>{if (apiKey != null) 'apiKey': apiKey},
+      );
+    } on PlatformException catch (e) {
+      return e.message ?? '平台调用失败';
+    } on MissingPluginException {
+      return '当前环境不支持该平台调用';
+    }
+  }
+}
+
+/// 通用在线 TTS 引擎配置。
+class OnlineProviderConfig {
+  const OnlineProviderConfig({
+    this.providerKind = 'mimo',
+    this.baseUrl = '',
+    this.model = '',
+    this.voice = '',
+    this.responseFormat = 'pcm',
+    this.sampleRate = 24000,
+    this.customHeaders = '',
+    this.customBodyTemplate = '',
+  });
+
+  final String providerKind;
+  final String baseUrl;
+  final String model;
+  final String voice;
+  final String responseFormat;
+  final int sampleRate;
+  final String customHeaders;
+  final String customBodyTemplate;
+
+  OnlineProviderConfig copyWith({
+    String? providerKind,
+    String? baseUrl,
+    String? model,
+    String? voice,
+    String? responseFormat,
+    int? sampleRate,
+    String? customHeaders,
+    String? customBodyTemplate,
+  }) {
+    return OnlineProviderConfig(
+      providerKind: providerKind ?? this.providerKind,
+      baseUrl: baseUrl ?? this.baseUrl,
+      model: model ?? this.model,
+      voice: voice ?? this.voice,
+      responseFormat: responseFormat ?? this.responseFormat,
+      sampleRate: sampleRate ?? this.sampleRate,
+      customHeaders: customHeaders ?? this.customHeaders,
+      customBodyTemplate: customBodyTemplate ?? this.customBodyTemplate,
+    );
+  }
 }
 
 

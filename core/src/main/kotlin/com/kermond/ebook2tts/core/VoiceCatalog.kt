@@ -51,7 +51,7 @@ object VoiceCatalog {
         "云磐", "云齐", "云谦", "云乔", "云青", "云山", "云深", "云石",
         "云舒", "云松", "云涛", "云天", "云霆", "云望", "云熙", "云侠",
         "云霄", "云岩", "云野", "云逸", "云翼", "云影", "云渊", "云泽",
-        "云湛", "云章", "云峥", "云舟", "云洲", "云卓", "云子", "云纵",
+        "云湛", "云章", "云峥", "云铮", "云洲", "云卓", "云子", "云纵",
     )
 
     fun kokoroVoices(): List<VoiceInfo> {
@@ -84,8 +84,13 @@ object VoiceCatalog {
         VoiceInfo("ll_4", "春晓·中文女声", VoiceGender.FEMALE, 4, "VITS"),
     )
 
+    fun matchaZhEnVoices(): List<VoiceInfo> = listOf(
+        VoiceInfo("matcha_0", "墨荷·中英女声", VoiceGender.FEMALE, 0, "Matcha"),
+    )
+
     fun poolForModel(modelId: String, numSpeakers: Int = 0): List<VoiceInfo> = when {
         modelId.startsWith("kokoro") -> kokoroVoices()
+        modelId.startsWith("matcha") -> matchaZhEnVoices()
         modelId.contains("zh-ll") -> vitsZhLlVoices()
         numSpeakers > 0 -> (0 until numSpeakers.coerceAtMost(64)).map { i ->
             val g = if (i % 2 == 0) VoiceGender.FEMALE else VoiceGender.MALE

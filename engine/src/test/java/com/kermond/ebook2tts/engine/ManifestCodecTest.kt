@@ -91,6 +91,36 @@ class ManifestCodecTest {
         assertNull(ManifestCodec.parse(""))
     }
 
+    @Test
+    fun parse_acceptsVocoderFieldsAndRejectsInvalidVocoder() {
+        val good = """
+            {
+              "schema":1,"version":2026112201,"updatedAt":"2026-11-22",
+              "models":[{
+                "id":"matcha-zh-en","label":"Matcha","desc":"d","archive":"m.tar.bz2",
+                "url":"https://example.com/m.tar.bz2","mirrors":[],"sha256":"$sha",
+                "downloadBytes":100,"extractedBytes":200,
+                "files":{
+                  "kind":"matcha","model":"model-steps-3.onnx",
+                  "vocoder":"vocos.onnx",
+                  "vocoderUrl":"https://example.com/vocos.onnx",
+                  "vocoderSha256":"$sha",
+                  "vocoderBytes":50
+                }
+              }]
+            }
+        """.trimIndent()
+        val parsed = ManifestCodec.parse(good)
+        assertNotNull(parsed)
+        val f = parsed!!.models.single().files
+        assertEquals("vocos.onnx", f.vocoder)
+        assertEquals("https://example.com/vocos.onnx", f.vocoderUrl)
+        assertEquals(50L, f.vocoderBytes)
+
+        val badVocoderUrl = good.replace("https://example.com/vocos.onnx", "http://example.com/vocos.onnx")
+        assertNull(ManifestCodec.parse(badVocoderUrl))
+    }
+
     /** 防漂移：仓库根 manifest.json ⟷ 内置兜底 ModelCatalog（含实测字节与 sha256） */
     @Test
     fun rootManifest_matchesBuiltin() {

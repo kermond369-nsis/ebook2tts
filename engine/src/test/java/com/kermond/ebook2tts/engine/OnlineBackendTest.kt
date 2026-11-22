@@ -1,9 +1,11 @@
 package com.kermond.ebook2tts.engine
 
+import com.kermond.ebook2tts.core.TtsProviderKind
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
+import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -11,6 +13,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.ByteArrayOutputStream
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -189,6 +192,135 @@ class OnlineBackendTest {
         val first = server.takeRequest()
         assertEquals("GET", first.method)
         assertTrue(first.path!!.endsWith("/models"))
+    }
+
+    @Test
+    fun openAiCompat_streamsPcmAndWav_andFallsBackValidateOn404() {
+        val pcmPayload = ByteArray(480) { 3 }
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "audio/pcm")
+                .setBody(Buffer().write(pcmPayload)),
+        )
+        val openAiReq = OnlineRequest(
+            baseUrl = baseUrl,
+            apiKey = "",
+            model = "gpt-4o-mini-tts",
+            voice = "alloy",
+            style = "",
+            providerKind = TtsProviderKind.OPENAI_COMPAT,
+            responseFormat = "pcm",
+            sampleRate = 24000,
+        )
+        val chunks = ArrayList<TtsAudioChunk>()
+        val outcome = backend.synthesizeChunks(openAiReq, "你好", 1.3f, { chunks.add(it); true }, { false })
+        assertTrue(outcome is OnlineOutcome.Ok)
+        assertEquals(480, chunks.sumOf { it.pcm16Mono.size })
+        assertEquals(24000, chunks.first().sampleRate)
+
+        val recorded = server.takeRequest()
+        assertTrue(recorded.path!!.endsWith("/audio/speech"))
+        assertNull("空密钥时不得发送 Authorization 头", recorded.getHeader("Authorization"))
+        val sentJson = recorded.body.readUtf8()
+        assertTrue(sentJson.contains("\"speed\":1.3"))
+        assertTrue(sentJson.contains("\"response_format\":\"pcm\""))
+
+        // WAV 16kHz 响应：自动剥头并按 WAV 头中采样率输出
+        val wavBytes = buildWav16k(ByteArray(320) { 5 })
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("Content-Type", "audio/wav")
+                .setBody(Buffer().write(wavBytes)),
+        )
+        val wavChunks = ArrayList<TtsAudioChunk>()
+        val wavOutcome = backend.synthesizeChunks(
+            openAiReq.copy(responseFormat = "wav"),
+            "WAV测试",
+            1.0f,
+            { wavChunks.add(it); true },
+            { false },
+        )
+        assertTrue(wavOutcome is OnlineOutcome.Ok)
+        assertEquals(320, wavChunks.sumOf { it.pcm16Mono.size })
+        assertEquals(16000, wavChunks.first().sampleRate)
+        server.takeRequest()
+
+        // /models 返回 404 时自动回落探测 /audio/speech
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(Buffer().write(wavBytes)))
+        assertNull(backend.validate(openAiReq))
+        assertTrue(server.takeRequest().path!!.endsWith("/models"))
+        assertTrue(server.takeRequest().path!!.endsWith("/audio/speech"))
+    }
+
+    @Test
+    fun customHttp_rendersTemplateHeadersAndDecodesWav() {
+        val wavBytes = buildWav16k(ByteArray(160) { 7 })
+        server.enqueue(MockResponse().setResponseCode(200).setBody(Buffer().write(wavBytes)))
+
+        val customReq = OnlineRequest(
+            baseUrl = "$baseUrl/tts",
+            apiKey = "secret-xyz",
+            model = "fish-speech-1.5",
+            voice = "narrator",
+            style = "",
+            providerKind = TtsProviderKind.CUSTOM_HTTP,
+            responseFormat = "wav",
+            sampleRate = 16000,
+            customHeaders = "X-Token: {{apiKey}}",
+            customBodyTemplate = """{"text":"{{text}}","speaker":"{{voice}}","speed":{{speed}}}""",
+        )
+        val got = ArrayList<TtsAudioChunk>()
+        val res = backend.synthesizeChunks(customReq, "第一行\n\"引用\"", 1.5f, { got.add(it); true }, { false })
+        assertTrue(res is OnlineOutcome.Ok)
+        assertEquals(160, got.sumOf { it.pcm16Mono.size })
+        assertEquals(16000, got.first().sampleRate)
+
+        val recorded = server.takeRequest()
+        assertEquals("secret-xyz", recorded.getHeader("X-Token"))
+        val body = recorded.body.readUtf8()
+        assertTrue(body.contains("\\n\\\"引用\\\""))
+        assertTrue(body.contains("\"speed\":1.50"))
+    }
+
+    @Test
+    fun errorSanitizer_masksSecrets() {
+        val masked = ErrorSanitizer.sanitize("HTTP 401: Bearer abc.def.ghi failed sk-12345678 and tp-abcdef99")
+        assertTrue(masked.contains("Bearer ***"))
+        assertTrue(!masked.contains("abc.def.ghi"))
+        assertTrue(!masked.contains("sk-12345678"))
+        assertTrue(!masked.contains("tp-abcdef99"))
+    }
+
+    private fun buildWav16k(pcm: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream()
+        fun u16(v: Int) {
+            out.write(v and 0xFF)
+            out.write((v shr 8) and 0xFF)
+        }
+        fun u32(v: Int) {
+            out.write(v and 0xFF)
+            out.write((v shr 8) and 0xFF)
+            out.write((v shr 16) and 0xFF)
+            out.write((v shr 24) and 0xFF)
+        }
+        out.write("RIFF".toByteArray(Charsets.US_ASCII))
+        u32(36 + pcm.size)
+        out.write("WAVE".toByteArray(Charsets.US_ASCII))
+        out.write("fmt ".toByteArray(Charsets.US_ASCII))
+        u32(16)
+        u16(1)
+        u16(1)
+        u32(16000)
+        u32(32000)
+        u16(2)
+        u16(16)
+        out.write("data".toByteArray(Charsets.US_ASCII))
+        u32(pcm.size)
+        out.write(pcm)
+        return out.toByteArray()
     }
 
     private companion object {

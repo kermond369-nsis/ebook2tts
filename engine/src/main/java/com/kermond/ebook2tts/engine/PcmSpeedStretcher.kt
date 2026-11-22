@@ -34,6 +34,7 @@ import java.nio.ByteOrder
 class PcmSpeedStretcher(private val speed: Float) {
 
     private val processor = SonicAudioProcessor()
+    private var inputBuf: ByteBuffer? = null
     private var configured = false
     private var dead = false
 
@@ -42,7 +43,13 @@ class PcmSpeedStretcher(private val speed: Float) {
         if (dead || pcm.isEmpty() || isNoop(speed)) return pcm
         return try {
             ensureConfigured(sampleRate, channels)
-            val input = ByteBuffer.allocateDirect(pcm.size).order(ByteOrder.nativeOrder())
+            val existing = inputBuf
+            val input = if (existing != null && existing.capacity() >= pcm.size) {
+                existing.clear()
+                existing
+            } else {
+                ByteBuffer.allocateDirect(pcm.size).order(ByteOrder.nativeOrder()).also { inputBuf = it }
+            }
             input.put(pcm).flip()
             processor.queueInput(input)
             drain()
