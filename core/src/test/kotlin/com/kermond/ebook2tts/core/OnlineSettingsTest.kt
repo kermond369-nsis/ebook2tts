@@ -67,4 +67,12 @@ class OnlineSettingsTest {
         assertNull(OnlineSettings.keyMismatchWarning("billing", "no-prefix"))
         assertNull(OnlineSettings.keyMismatchWarning("billing", ""))
     }
+
+    @Test
+    fun resolveLlmModel_upgradesLegacyModelAndKeepsCustom() {
+        assertEquals("mimo-v2.6-flash", OnlineSettings.DEFAULT_LLM_MODEL)
+        assertEquals("mimo-v2.6-flash", OnlineSettings.resolveLlmModel(""))
+        assertEquals("mimo-v2.6-flash", OnlineSettings.resolveLlmModel("  mimo-v2.5  "))
+        assertEquals("mimo-v2.6-pro", OnlineSettings.resolveLlmModel(" mimo-v2.6-pro "))
+    }
 }

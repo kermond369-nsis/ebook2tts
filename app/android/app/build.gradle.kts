@@ -11,7 +11,9 @@ android {
     val explicitlyUniversal = requestedPlatforms.split(",")
         .any { it.trim().equals("android-arm", ignoreCase = true) } ||
         (requestedPlatforms.contains("arm64", ignoreCase = true) && requestedPlatforms.contains("x64", ignoreCase = true))
-    val abiModeRaw = providers.gradleProperty("abiMode").orNull.orEmpty().trim().lowercase()
+    val abiModeRaw = providers.gradleProperty("abiMode")
+        .orElse(providers.environmentVariable("EBOOK2TTS_ABI_MODE"))
+        .orNull.orEmpty().trim().lowercase()
     val abiMode = when {
         abiModeRaw in setOf("arm64", "universal", "debug") -> abiModeRaw
         explicitlyUniversal -> "universal"
@@ -54,25 +56,31 @@ android {
         versionName = flutter.versionName
     }
 
-    fun applyAbiFilters(filter: com.android.build.api.dsl.Ndk) {
-        filter.abiFilters.clear()
-        when (abiMode) {
-            "arm64" -> filter.abiFilters.add("arm64-v8a")
-            "universal" -> filter.abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
-            else -> filter.abiFilters.addAll(listOf("x86_64", "arm64-v8a"))
-        }
+    val targetAbis = when (abiMode) {
+        "arm64" -> listOf("arm64-v8a")
+        "universal" -> listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        else -> listOf("x86_64", "arm64-v8a")
     }
 
     buildTypes {
         debug {
-            // 默认保留 x86_64 + arm64-v8a 供本地/CI 调试；传 -PabiMode=arm64/universal 时按需收敛
-            ndk { applyAbiFilters(this) }
+            // 默认保留 x86_64 + arm64-v8a 供本地/CI 调试；传 EBOOK2TTS_ABI_MODE=arm64/universal 时按需收敛
+            ndk {
+                abiFilters.clear()
+                abiFilters.addAll(targetAbis)
+            }
         }
         matching { it.name == "profile" }.configureEach {
-            ndk { applyAbiFilters(this) }
+            ndk {
+                abiFilters.clear()
+                abiFilters.addAll(targetAbis)
+            }
         }
         release {
-            ndk { applyAbiFilters(this) }
+            ndk {
+                abiFilters.clear()
+                abiFilters.addAll(targetAbis)
+            }
             // 正式签名由发布线配置；当前阶段沿用调试签名，保证 `flutter run --release` 可用
             // P7 复核整改（agy 2026-09-17）：release 缺凭据的**失败判定放在任务执行期**（见文件末尾
             // 的 assembleRelease 守卫），此处只在有凭据时切到发布签名。

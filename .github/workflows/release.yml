@@ -124,9 +124,9 @@ jobs:
           else
             (
               cd app
-              flutter build apk --profile --target-platform android-arm64 -PabiMode=arm64
+              EBOOK2TTS_ABI_MODE=arm64 flutter build apk --profile --target-platform android-arm64
               cp build/app/outputs/flutter-apk/app-profile.apk "../ebook2tts-${PREFIX}-arm64-profile.apk"
-              flutter build apk --profile --target-platform android-arm64,android-arm,android-x64 -PabiMode=universal
+              EBOOK2TTS_ABI_MODE=universal flutter build apk --profile --target-platform android-arm64,android-arm,android-x64
               cp build/app/outputs/flutter-apk/app-profile.apk "../ebook2tts-${PREFIX}-universal-profile.apk"
             )
             ARM64_OUT="ebook2tts-${PREFIX}-arm64-profile.apk"

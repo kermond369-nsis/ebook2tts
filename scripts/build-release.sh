@@ -39,9 +39,8 @@ echo "::group::flutter build apk --release ($MODE: $TARGET_PLATFORMS)"
 (
   cd "$APP"
   flutter pub get >/dev/null
-  flutter build apk --release \
-    --target-platform "$TARGET_PLATFORMS" \
-    -PabiMode="$MODE"
+  EBOOK2TTS_ABI_MODE="$MODE" flutter build apk --release \
+    --target-platform "$TARGET_PLATFORMS"
 )
 echo "::endgroup::"
 

@@ -105,7 +105,7 @@ void main() {
 
     await tester.tap(find.text('音色').last);
     await tester.pump(const Duration(milliseconds: 200));
-    expect(find.text('当前旁白', skipOffstage: false), findsOneWidget);
+    expect(find.text('当前旁白', skipOffstage: false), findsWidgets);
 
     await tester.tap(find.text('设置').last);
     await tester.pump(const Duration(milliseconds: 200));

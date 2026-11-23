@@ -70,6 +70,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('本地优先（不可用走在线）'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('本地优先（不可用走在线）'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('本地优先（不可用走在线）'));
     await tester.pump();
     await tester.tap(find.text('进入应用'));
