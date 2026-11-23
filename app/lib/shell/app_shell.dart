@@ -6,14 +6,14 @@ import '../platform/system_bridge.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/common.dart';
-import 'diagnostics_page.dart';
-import 'guide_page.dart';
-import 'local_hub_page.dart';
-import 'models_page.dart';
-import 'online_config_page.dart';
-import 'sample_page.dart';
-import 'settings_page.dart';
-import 'voices_page.dart';
+import '../pages/diagnostics_page.dart';
+import '../pages/guide_page.dart';
+import '../pages/local_hub_page.dart';
+import '../pages/models_page.dart';
+import '../pages/online_config_page.dart';
+import '../pages/sample_page.dart';
+import '../pages/settings_page.dart';
+import '../pages/voices_page.dart';
 
 class _NavTab {
   const _NavTab({

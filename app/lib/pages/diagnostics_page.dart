@@ -162,9 +162,9 @@ class DiagnosticsPage extends ConsumerWidget {
                     ),
                     KeyValueRow(
                       label: '总耗时',
-                      value: perf['totalMs'] == null
+                      value: perf['totalMs'] is! num
                           ? '--'
-                          : '${(perf['totalMs'] / 1000).toStringAsFixed(2)} 秒',
+                          : '${((perf['totalMs'] as num) / 1000).toStringAsFixed(2)} 秒',
                     ),
                     KeyValueRow(
                       label: '丢块数',
