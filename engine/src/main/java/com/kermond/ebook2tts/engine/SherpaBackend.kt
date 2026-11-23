@@ -66,84 +66,87 @@ class SherpaBackend(
                 loadError = "模型未就绪"
                 return
             }
-            fun abs(name: String): String =
-                if (name.isEmpty()) "" else File(modelDir, name).absolutePath
-            fun absList(names: String): String =
-                if (names.isEmpty()) ""
-                else names.split(",").joinToString(",") { File(modelDir, it.trim()).absolutePath }
-
-            val modelCfg = when (spec.files.kind) {
-                "kokoro" -> OfflineTtsModelConfig(
-                    vits = OfflineTtsVitsModelConfig(
-                        model = "",
-                        lexicon = "",
-                        tokens = "",
-                        dataDir = "",
-                        dictDir = "",
-                    ),
-                    kokoro = OfflineTtsKokoroModelConfig(
-                        model = abs(spec.files.modelName),
-                        voices = abs(spec.files.voices),
-                        tokens = abs(spec.files.tokens),
-                        dataDir = abs(spec.files.dataDir),
-                        lexicon = absList(spec.files.lexicon),
-                        lang = spec.files.lang,
-                        dictDir = abs(spec.files.dictDir),
-                        lengthScale = 1.0f,
-                    ),
-                    numThreads = numThreads,
-                    provider = "cpu",
-                )
-                "matcha" -> OfflineTtsModelConfig(
-                    vits = OfflineTtsVitsModelConfig(
-                        model = "",
-                        lexicon = "",
-                        tokens = "",
-                        dataDir = "",
-                        dictDir = "",
-                    ),
-                    matcha = OfflineTtsMatchaModelConfig(
-                        acousticModel = abs(spec.files.modelName),
-                        vocoder = abs(spec.files.vocoder),
-                        lexicon = absList(spec.files.lexicon),
-                        tokens = abs(spec.files.tokens),
-                        dataDir = abs(spec.files.dataDir),
-                        dictDir = abs(spec.files.dictDir),
-                        noiseScale = 0.667f,
-                        lengthScale = 1.0f,
-                    ),
-                    numThreads = numThreads,
-                    provider = "cpu",
-                )
-                else -> OfflineTtsModelConfig(
-                    vits = OfflineTtsVitsModelConfig(
-                        model = abs(spec.files.modelName),
-                        lexicon = absList(spec.files.lexicon),
-                        tokens = abs(spec.files.tokens),
-                        dataDir = abs(spec.files.dataDir),
-                        dictDir = abs(spec.files.dictDir),
-                        lengthScale = 1.0f,
-                    ),
-                    numThreads = numThreads,
-                    provider = "cpu",
-                )
-            }
-            val config = OfflineTtsConfig(
-                model = modelCfg,
-                ruleFsts = absList(spec.files.ruleFsts),
-                ruleFars = absList(spec.files.ruleFars),
-                maxNumSentences = 1,
-                silenceScale = 0.15f,
-            )
-            val engine = OfflineTts(config = config)
+            val engine = OfflineTts(config = buildOfflineTtsConfig("cpu"))
             tts = engine
             sampleRate = engine.sampleRate()
             cache.clear() // 模型（重）加载后旧缓存一律失效（ADR-019 §16.2）
-            Log.i(TAG, "loaded sr=$sampleRate speakers=${engine.numSpeakers()} threads=$numThreads")  // P7: 打印实际生效线程数（原为 ConfigStore 值，与覆盖钩子不符）
+            Log.i(TAG, "loaded sr=$sampleRate speakers=${engine.numSpeakers()} threads=$numThreads provider=cpu")
         } catch (t: Throwable) {
             loadError = t.message ?: t.toString()
             Log.e(TAG, "load failed", t)
         }
+    }
+
+    private fun buildOfflineTtsConfig(provider: String): OfflineTtsConfig {
+        fun abs(name: String): String =
+            if (name.isEmpty()) "" else File(modelDir, name).absolutePath
+        fun absList(names: String): String =
+            if (names.isEmpty()) ""
+            else names.split(",").joinToString(",") { File(modelDir, it.trim()).absolutePath }
+
+        val modelCfg = when (spec.files.kind) {
+            "kokoro" -> OfflineTtsModelConfig(
+                vits = OfflineTtsVitsModelConfig(
+                    model = "",
+                    lexicon = "",
+                    tokens = "",
+                    dataDir = "",
+                    dictDir = "",
+                ),
+                kokoro = OfflineTtsKokoroModelConfig(
+                    model = abs(spec.files.modelName),
+                    voices = abs(spec.files.voices),
+                    tokens = abs(spec.files.tokens),
+                    dataDir = abs(spec.files.dataDir),
+                    lexicon = absList(spec.files.lexicon),
+                    lang = spec.files.lang,
+                    dictDir = abs(spec.files.dictDir),
+                    lengthScale = 1.0f,
+                ),
+                numThreads = numThreads,
+                provider = provider,
+            )
+            "matcha" -> OfflineTtsModelConfig(
+                vits = OfflineTtsVitsModelConfig(
+                    model = "",
+                    lexicon = "",
+                    tokens = "",
+                    dataDir = "",
+                    dictDir = "",
+                ),
+                matcha = OfflineTtsMatchaModelConfig(
+                    acousticModel = abs(spec.files.modelName),
+                    vocoder = abs(spec.files.vocoder),
+                    lexicon = absList(spec.files.lexicon),
+                    tokens = abs(spec.files.tokens),
+                    dataDir = abs(spec.files.dataDir),
+                    dictDir = abs(spec.files.dictDir),
+                    noiseScale = 0.667f,
+                    lengthScale = 1.0f,
+                ),
+                numThreads = numThreads,
+                provider = provider,
+            )
+            else -> OfflineTtsModelConfig(
+                vits = OfflineTtsVitsModelConfig(
+                    model = abs(spec.files.modelName),
+                    lexicon = absList(spec.files.lexicon),
+                    tokens = abs(spec.files.tokens),
+                    dataDir = abs(spec.files.dataDir),
+                    dictDir = abs(spec.files.dictDir),
+                    lengthScale = 1.0f,
+                ),
+                numThreads = numThreads,
+                provider = provider,
+            )
+        }
+        return OfflineTtsConfig(
+            model = modelCfg,
+            ruleFsts = absList(spec.files.ruleFsts),
+            ruleFars = absList(spec.files.ruleFars),
+            maxNumSentences = 1,
+            silenceScale = 0.15f,
+        )
     }
 
     private fun modelReady(): Boolean {

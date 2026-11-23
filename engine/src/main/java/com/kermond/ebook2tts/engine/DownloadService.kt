@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.kermond.ebook2tts.core.MirrorResolver
 import com.kermond.ebook2tts.core.ModelCatalog
 import com.kermond.ebook2tts.core.NetPolicy
 import java.util.concurrent.Executors
@@ -39,6 +40,21 @@ class DownloadService : Service() {
         Thread(r, "model-download").apply { isDaemon = true }
     }
 
+    private val launchPendingIntent: PendingIntent? by lazy {
+        val launch = packageManager.getLaunchIntentForPackage(packageName) ?: return@lazy null
+        PendingIntent.getActivity(
+            this,
+            0,
+            launch,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        ensureChannel()
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -55,16 +71,28 @@ class DownloadService : Service() {
 
         val initSpec = ModelCatalog.byId(modelId)
         val initTotal = initSpec.downloadBytes + initSpec.files.vocoderBytes
-        snapshotRef.set(Snapshot(modelId, "probe", 0L, initTotal, ""))
+        val selectedMirror = ConfigStore.mirrorSelection()
+        val initPhase = MirrorResolver.initialPhase(selectedMirror)
+        val initSource = if (MirrorResolver.isAuto(selectedMirror)) {
+            ""
+        } else {
+            MirrorResolver.orderedSources(initSpec, selectedMirror, ConfigStore.mirrorBase())
+                .firstOrNull()
+                ?.let { MirrorResolver.hostLabel(it) }
+                .orEmpty()
+        }
+        snapshotRef.set(Snapshot(modelId, initPhase, 0L, initTotal, initSource))
         startAsForeground("模型下载：${initSpec.label}")
 
         val dl = ModelDownloader(this)
         activeDownloader.set(dl)
 
         val task = executor.submit {
-            var currentSource = ""
+            var currentSource = initSource
             var lastNotifyAt = 0L
             var lastStage = ""
+            var lastNotifAt = 0L
+            var lastNotifStage = ""
             try {
                 if (cancelRequested.get()) {
                     onFinishedCancelled(dl, modelId, 0L, initTotal, startId)
@@ -81,7 +109,7 @@ class DownloadService : Service() {
                     return@submit
                 }
                 val spec = runCatching {
-                    ManifestRepository(this@DownloadService, dl.http).specs().firstOrNull { it.id == modelId }
+                    ModelRegistry.specsLocalOnly(this@DownloadService).firstOrNull { it.id == modelId }
                 }.getOrNull() ?: initSpec
                 if (cancelRequested.get()) {
                     onFinishedCancelled(dl, modelId, 0L, initTotal, startId)
@@ -96,7 +124,7 @@ class DownloadService : Service() {
                         }
                         ConfigStore.notifyStatus(
                             this@DownloadService,
-                            "DL_PROGRESS|$modelId|${cur?.received ?: 0L}|${cur?.total ?: initTotal}|${cur?.phase ?: "download"}|$sourceLabel",
+                            "DL_PROGRESS|$modelId|${cur?.received ?: 0L}|${cur?.total ?: initTotal}|${cur?.phase ?: initPhase}|$sourceLabel",
                         )
                     }
 
@@ -107,12 +135,16 @@ class DownloadService : Service() {
                         if (stage != lastStage || now - lastNotifyAt >= 450L) {
                             lastStage = stage
                             lastNotifyAt = now
-                            val p = if (total > 0) ((bytes * 100) / total).toInt().coerceIn(0, 100) else 0
-                            updateNotification(spec.label, "${stageText(stage)} $p%")
                             ConfigStore.notifyStatus(
                                 this@DownloadService,
                                 "DL_PROGRESS|$modelId|$bytes|$total|$stage|$currentSource",
                             )
+                        }
+                        if (stage != lastNotifStage || now - lastNotifAt >= 900L) {
+                            lastNotifStage = stage
+                            lastNotifAt = now
+                            val p = if (total > 0) ((bytes * 100) / total).toInt().coerceIn(0, 100) else 0
+                            updateNotification(spec.label, "${stageText(stage)} $p%")
                         }
                     }
 
@@ -191,18 +223,11 @@ class DownloadService : Service() {
     }
 
     private fun buildNotification(title: String, content: String): Notification {
-        ensureChannel()
-        val pi = PendingIntent.getActivity(
-            this,
-            0,
-            packageManager.getLaunchIntentForPackage(packageName),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
         return NotificationCompat.Builder(this, CHANNEL)
             .setContentTitle(title)
             .setContentText(content)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentIntent(pi)
+            .apply { launchPendingIntent?.let { setContentIntent(it) } }
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .build()

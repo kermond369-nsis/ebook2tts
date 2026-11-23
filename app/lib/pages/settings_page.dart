@@ -43,6 +43,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
 
     final speed = _speedDraft ?? config.speed;
+    final inf = ref.watch(inferenceConfigProvider).value ??
+        InferenceConfigState.defaults();
 
     return PageBody(
       children: [
@@ -133,6 +135,75 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             ],
           ),
         ),
+
+        if (workMode != AppWorkMode.onlineOnly)
+          SectionCard(
+            title: '本地推理性能',
+            subtitle: '控制端侧模型合成使用的 CPU 线程数（修改后自动重载模型生效）。',
+            trailing: StatusChip(
+              label: '${inf.effectiveThreads} 线程 · CPU',
+              color: Tokens.cloud,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'CPU 推理线程数',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Tokens.text,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    for (final t in const [0, 2, 4, 6, 8])
+                      ChoiceChip(
+                        label: Text(t == 0 ? '自动' : '$t 线程'),
+                        selected: inf.storedThreads == t,
+                        onSelected: (_) async {
+                          await ref
+                              .read(inferenceConfigProvider.notifier)
+                              .updateThreads(t);
+                          if (context.mounted) {
+                            showAppSnack(
+                              context,
+                              t == 0 ? '已恢复自动线程分配' : '推理线程已设为 $t 线程',
+                            );
+                          }
+                        },
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '异构大小核手机自动档默认 2 线程；现代 8 核旗舰运行 Matcha 或 Kokoro fp32 可尝试 4 线程加速（过高可能与小核争抢反慢）。',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Tokens.textDim,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const KeyValueRow(
+                  label: '计算后端',
+                  value: 'CPU（ARM NEON 多核）',
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '说明：当前内置 sherpa-onnx Android 引擎库以 API 21 编译（仅启用 CPU，未启用 NNAPI / XNNPACK / QNN），调节 CPU 线程数是当前最直接的加速手段。',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Tokens.textDim,
+                    height: 1.45,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
         // ③ 网络与流量策略
         SectionCard(

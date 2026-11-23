@@ -308,6 +308,9 @@ class PrimaryButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return FilledButton(
       onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      ),
       child: Row(
         mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
@@ -323,6 +326,8 @@ class PrimaryButton extends StatelessWidget {
           Flexible(
             child: Text(
               label,
+              maxLines: 1,
+              softWrap: false,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
             ),
@@ -358,6 +363,7 @@ class SecondaryButton extends StatelessWidget {
       style: OutlinedButton.styleFrom(
         foregroundColor: color,
         backgroundColor: Tokens.surfaceAlt.withValues(alpha: 0.45),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         side: BorderSide(
           color: onPressed == null ? Tokens.divider : color.withValues(alpha: 0.6),
         ),
@@ -377,6 +383,8 @@ class SecondaryButton extends StatelessWidget {
           Flexible(
             child: Text(
               label,
+              maxLines: 1,
+              softWrap: false,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             ),

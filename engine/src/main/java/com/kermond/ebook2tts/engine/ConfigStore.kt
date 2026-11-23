@@ -91,8 +91,14 @@ object ConfigStore {
         perfCores = perfCores,
     )
 
+    fun storedThreads(): Int = kv().decodeInt("engine.threads", 0)
+
     fun setThreads(n: Int) {
-        kv().encode("engine.threads", n.coerceIn(1, MAX_THREADS))
+        if (n <= 0) {
+            kv().encode("engine.threads", 0)
+        } else {
+            kv().encode("engine.threads", n.coerceIn(1, MAX_THREADS))
+        }
     }
 
     // ---- 在线朗读（MiMo；P3 §4 协议键）----

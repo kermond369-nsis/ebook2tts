@@ -288,11 +288,14 @@ class ModelDownloader(private val context: Context) {
         if (candidates.isEmpty()) return TransferResult(false, "无可用下载地址")
 
         val stageName = if (progressOffset > 0L) "download_vocoder" else "download"
-        val ordered = if (selected == MirrorResolver.MIRROR_AUTO || selected.isBlank()) {
+        val ordered = if (MirrorResolver.isAuto(selected)) {
             progress.onProgress(progressOffset + part.length(), progressTotal, "probe")
             val fastest = http.pickFastest(candidates) { cancelled } ?: return TransferResult(false, "已取消")
             listOf(fastest) + candidates.filter { it != fastest }
         } else {
+            val chosenHost = MirrorResolver.hostLabel(candidates.first())
+            progress.onSourceChanged(chosenHost)
+            progress.onProgress(progressOffset + part.length(), progressTotal, stageName)
             candidates
         }
 
@@ -455,9 +458,9 @@ class ModelDownloader(private val context: Context) {
         }
     }
 
-    /** 以清单为准解析模型（远程清单 → 缓存 → 内置兜底）；异常时退回调用方传入的 spec。 */
+    /** 以纯本地缓存或内置清单解析模型（零网络阻塞）；异常时退回调用方传入的 spec。 */
     private fun resolve(spec: ModelSpec): ModelSpec =
-        runCatching { ManifestRepository(context, http).specs().firstOrNull { it.id == spec.id } }
+        runCatching { ModelRegistry.specsLocalOnly(context).firstOrNull { it.id == spec.id } }
             .getOrNull() ?: spec
 
     companion object {

@@ -276,6 +276,40 @@ class SystemBridge {
       );
     }
   }
+
+  /// 读取本地推理线程与计算后端配置。
+  static Future<InferenceConfigState> getInferenceConfig() async {
+    try {
+      final m = await _channel
+          .invokeMethod<Map<Object?, Object?>>('getInferenceConfig');
+      if (m == null) return InferenceConfigState.defaults();
+      return InferenceConfigState(
+        storedThreads: (m['storedThreads'] as num?)?.toInt() ?? 0,
+        effectiveThreads: (m['effectiveThreads'] as num?)?.toInt() ?? 2,
+        cpuCores: (m['cpuCores'] as num?)?.toInt() ?? 8,
+        provider: (m['provider'] as String?) ?? 'cpu',
+      );
+    } on PlatformException {
+      return InferenceConfigState.defaults();
+    } on MissingPluginException {
+      return InferenceConfigState.defaults();
+    }
+  }
+
+  /// 保存本地推理线程数配置并通知引擎重载。
+  static Future<bool> setInferenceConfig({int? threads}) async {
+    try {
+      final res = await _channel.invokeMethod<String>(
+        'setInferenceConfig',
+        <String, Object>{if (threads != null) 'threads': threads},
+      );
+      return res == 'ok';
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
 }
 
 /// 通用在线 TTS 引擎配置。
@@ -452,4 +486,40 @@ class LocalImportResult {
   final bool cancelled;
   final String message;
   final String? modelId;
+}
+
+/// 本地推理性能配置（CPU 线程数与计算后端）。
+class InferenceConfigState {
+  const InferenceConfigState({
+    required this.storedThreads,
+    required this.effectiveThreads,
+    required this.cpuCores,
+    required this.provider,
+  });
+
+  factory InferenceConfigState.defaults() => const InferenceConfigState(
+        storedThreads: 0,
+        effectiveThreads: 2,
+        cpuCores: 8,
+        provider: 'cpu',
+      );
+
+  final int storedThreads;
+  final int effectiveThreads;
+  final int cpuCores;
+  final String provider;
+
+  InferenceConfigState copyWith({
+    int? storedThreads,
+    int? effectiveThreads,
+    int? cpuCores,
+    String? provider,
+  }) {
+    return InferenceConfigState(
+      storedThreads: storedThreads ?? this.storedThreads,
+      effectiveThreads: effectiveThreads ?? this.effectiveThreads,
+      cpuCores: cpuCores ?? this.cpuCores,
+      provider: provider ?? this.provider,
+    );
+  }
 }

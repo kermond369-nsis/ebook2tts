@@ -41,7 +41,16 @@ class EngineTicksNotifier extends Notifier<int> {
   @override
   int build() {
     final engine = ref.watch(engineServiceProvider);
-    final sub = engine.events().listen((_) {
+    final sub = engine.events().listen((event) {
+      if (event.type == 'progress') {
+        final phase = event.data['phase'] as String? ?? '';
+        if (phase != 'done' &&
+            phase != 'error' &&
+            phase != 'cancelled' &&
+            phase != 'idle') {
+          return;
+        }
+      }
       state = state + 1;
     });
     ref.onDispose(sub.cancel);
@@ -331,6 +340,24 @@ class MirrorProbeNotifier extends Notifier<MirrorProbeState> {
     state = MirrorProbeState(probing: true, results: state.results);
     final res = await SystemBridge.probeMirrors(customUrl: customUrl);
     state = MirrorProbeState(probing: false, results: res);
+  }
+}
+
+/// 本地推理线程数与计算后端配置。
+final inferenceConfigProvider =
+    AsyncNotifierProvider<InferenceConfigNotifier, InferenceConfigState>(
+  InferenceConfigNotifier.new,
+);
+
+class InferenceConfigNotifier extends AsyncNotifier<InferenceConfigState> {
+  @override
+  Future<InferenceConfigState> build() => SystemBridge.getInferenceConfig();
+
+  Future<void> updateThreads(int threads) async {
+    await SystemBridge.setInferenceConfig(threads: threads);
+    final refreshed = await SystemBridge.getInferenceConfig();
+    state = AsyncData(refreshed);
+    ref.invalidate(statusProvider);
   }
 }
 

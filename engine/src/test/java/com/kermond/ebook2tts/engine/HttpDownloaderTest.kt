@@ -193,4 +193,12 @@ class HttpDownloaderTest {
         assertTrue(results[0].speedKbps > 0.0)
         assertTrue(!results[1].ok)
     }
+
+    @Test
+    fun defaultDownloader_sharesSingleClientInstance() {
+        val a = HttpDownloader()
+        val b = HttpDownloader()
+        assertTrue(a !== b)
+        assertEquals(HttpDownloader.sharedClientIdentity(), HttpDownloader.sharedClientIdentity())
+    }
 }

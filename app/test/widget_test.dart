@@ -11,6 +11,8 @@ import 'package:ebook2tts/state/providers.dart';
 const MethodChannel _systemChannel = MethodChannel('com.kermond.ebook2tts/system');
 
 void _mockSystem({required String mode, String onlineLastError = ''}) {
+  var storedThreads = 0;
+  var provider = 'cpu';
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(_systemChannel, (MethodCall call) async {
     switch (call.method) {
@@ -54,6 +56,19 @@ void _mockSystem({required String mode, String onlineLastError = ''}) {
         };
       case 'setMirrorConfig':
         return 'ok';
+      case 'getInferenceConfig':
+        return <String, Object>{
+          'storedThreads': storedThreads,
+          'effectiveThreads': storedThreads == 0 ? 2 : storedThreads,
+          'cpuCores': 8,
+          'provider': provider,
+        };
+      case 'setInferenceConfig':
+        final args = call.arguments as Map<Object?, Object?>?;
+        if (args?['threads'] is int) {
+          storedThreads = args!['threads'] as int;
+        }
+        return 'ok';
       case 'probeMirrors':
         return <Map<String, Object>>[
           {
@@ -71,7 +86,7 @@ void _mockSystem({required String mode, String onlineLastError = ''}) {
   });
 }
 
-Future<void> _pumpApp(WidgetTester tester) async {
+Future<MockEngineService> _pumpApp(WidgetTester tester) async {
   final engine = await MockEngineService.create();
   await tester.pumpWidget(
     ProviderScope(
@@ -83,6 +98,7 @@ Future<void> _pumpApp(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 400));
   expect(find.byType(CircularProgressIndicator), findsNothing,
       reason: '首启闸门未解开：通道应答缺失或 status() 未落地');
+  return engine;
 }
 
 void main() {
@@ -116,6 +132,9 @@ void main() {
     );
     expect(find.text(billing), findsOneWidget);
     expect(find.textContaining('平台方拒绝了当前密钥'), findsNothing);
+    await tester.tap(find.text('设置').last);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('本地推理性能', skipOffstage: false), findsNothing);
   });
 
   testWidgets('纯本地模式：仅显示本地模型与音色，彻底隐藏在线配置', (WidgetTester tester) async {
@@ -173,5 +192,61 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text(wifiOff), findsOneWidget);
+  });
+
+  testWidgets('纯本地模式：切换模型按钮文字完整且点击后即时生效，并可调节 CPU 推理线程',
+      (WidgetTester tester) async {
+    _mockSystem(mode: 'only_local');
+    final engine = await _pumpApp(tester);
+
+    await engine.startDownload('matcha-zh-en');
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+    await engine.startDownload('vits-zh-ll');
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    await tester.tap(find.text('模型').last);
+    await tester.pump(const Duration(milliseconds: 200));
+
+    await tester.scrollUntilVisible(
+      find.text('启用此模型'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('启用此模型'), findsOneWidget);
+    await tester.tap(find.text('启用此模型'));
+    await tester.pump(const Duration(milliseconds: 250));
+
+    final models = await engine.models();
+    expect(models.firstWhere((m) => m.id == 'matcha-zh-en').active, isTrue);
+    expect(models.firstWhere((m) => m.id == 'vits-zh-ll').active, isFalse);
+    expect(find.text('正在使用该模型', skipOffstage: false), findsOneWidget);
+    expect(find.text('启用此模型', skipOffstage: false), findsOneWidget);
+
+    await tester.tap(find.text('设置').last);
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.scrollUntilVisible(
+      find.text('本地推理性能'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('2 线程 · CPU'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('4 线程'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('4 线程'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.scrollUntilVisible(
+      find.text('4 线程 · CPU'),
+      -200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('4 线程 · CPU'), findsOneWidget);
   });
 }

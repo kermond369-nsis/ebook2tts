@@ -112,6 +112,20 @@ class MainActivity : FlutterActivity() {
                         ModelRegistry.invalidate()
                         result.success("ok")
                     }
+                    "getInferenceConfig" -> result.success(
+                        mapOf(
+                            "storedThreads" to ConfigStore.storedThreads(),
+                            "effectiveThreads" to ConfigStore.threads(),
+                            "cpuCores" to Runtime.getRuntime().availableProcessors(),
+                            "provider" to "cpu",
+                        )
+                    )
+                    "setInferenceConfig" -> {
+                        call.argument<Number>("threads")?.toInt()?.let { ConfigStore.setThreads(it) }
+                        ConfigStore.notifyReload(this, "inference_config")
+                        ConfigStore.notifyStatus(this, "INFERENCE_CONFIG")
+                        result.success("ok")
+                    }
                     "probeMirrors" -> {
                         val customArg = call.argument<String>("customUrl")?.trim()
                         ioExecutor.execute {

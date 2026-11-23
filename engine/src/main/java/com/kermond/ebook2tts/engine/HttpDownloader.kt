@@ -22,7 +22,7 @@ import java.util.concurrent.TimeoutException
  * - 取消通过 `abort()` + `isCancelled` 双保险：秒级中断在途 socket 与探测线程池。
  */
 class HttpDownloader(
-    private val client: OkHttpClient = defaultClient(),
+    private val client: OkHttpClient = sharedClient,
 ) : ManifestSource {
 
     data class ProbeResult(
@@ -230,7 +230,7 @@ class HttpDownloader(
         val req = Request.Builder().url(url)
             .apply { if (offset > 0L) header("Range", "bytes=$offset-") }
             .build()
-        val call = client.newBuilder().build().newCall(req)
+        val call = client.newCall(req)
         activeCalls.add(call)
         if (isCancelled()) {
             call.cancel()
@@ -292,6 +292,11 @@ class HttpDownloader(
         private const val PROBE_READ_TIMEOUT_S = 6L
         private const val PROBE_TIMEOUT_S = 8L
         private const val FETCH_TIMEOUT_S = 10L
+
+        private val sharedClient: OkHttpClient by lazy { defaultClient() }
+
+        /** 仅供单测断言默认复用同一 OkHttpClient 实例（共享连接池与 Dispatcher）。 */
+        internal fun sharedClientIdentity(): OkHttpClient = sharedClient
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)

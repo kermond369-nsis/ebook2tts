@@ -130,7 +130,7 @@ class ModelCatalogTest {
     fun builtinManifest_isWellFormed() {
         val m = ModelCatalog.manifest()
         assertEquals(ModelCatalog.BUILTIN_MANIFEST_VERSION, m.version)
-        assertEquals(listOf("kokoro-int8", "matcha-zh-en", "vits-zh-ll", "kokoro-fp32"), m.models.map { it.id })
+        assertEquals(listOf("matcha-zh-en", "vits-zh-ll", "kokoro-fp32", "kokoro-int8"), m.models.map { it.id })
         assertEquals(ModelCatalog.DEFAULT_ID, m.byId(ModelCatalog.DEFAULT_ID)?.id)
         // 每个模型都必须有可测速的源，且主源为 https
         for (spec in m.models) {
@@ -222,6 +222,17 @@ class MirrorResolverTest {
         assertEquals("https://my.cdn/tts/${spec.archiveName}", customOrder.first())
 
         assertEquals("edgeone.gh-proxy.org", MirrorResolver.hostLabel(edgeOrder.first()))
+
+        assertTrue(MirrorResolver.isAuto(""))
+        assertTrue(MirrorResolver.isAuto(MirrorResolver.MIRROR_AUTO))
+        assertFalse(MirrorResolver.isAuto(MirrorResolver.MIRROR_DIRECT))
+        assertFalse(MirrorResolver.isAuto("https://gh-proxy.com"))
+        assertFalse(MirrorResolver.isAuto(MirrorResolver.MIRROR_CUSTOM))
+        assertEquals("probe", MirrorResolver.initialPhase(""))
+        assertEquals("probe", MirrorResolver.initialPhase(MirrorResolver.MIRROR_AUTO))
+        assertEquals("download", MirrorResolver.initialPhase(MirrorResolver.MIRROR_DIRECT))
+        assertEquals("download", MirrorResolver.initialPhase("https://gh-proxy.com"))
+        assertEquals("download", MirrorResolver.initialPhase(MirrorResolver.MIRROR_CUSTOM))
     }
 }
 
@@ -367,6 +378,19 @@ class PcmChunkerTest {
         val tiny = ByteArray(4) { 7 }
         assertSame(tiny, PcmChunker.fadeHead(tiny, 24000, 3))
         assertSame(tiny, PcmChunker.fadeTail(tiny, 24000, 3))
+    }
+
+    @Test
+    fun floatToPcm16_guardsNonFiniteSamples() {
+        val pcm = PcmChunker.floatToPcm16(
+            floatArrayOf(Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, 0.5f),
+        )
+        assertEquals(8, pcm.size)
+        for (i in 0 until 6) {
+            assertEquals(0.toByte(), pcm[i])
+        }
+        val sample = (pcm[7].toInt() shl 8) or (pcm[6].toInt() and 0xff)
+        assertTrue("0.5f 应转换为正 PCM 采样：$sample", sample in 16000..16500)
     }
 }
 

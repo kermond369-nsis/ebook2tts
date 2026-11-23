@@ -7,6 +7,7 @@ import com.kermond.ebook2tts.core.ModelCatalog
 import com.kermond.ebook2tts.core.ModelManifest
 import com.kermond.ebook2tts.core.ModelSpec
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** 清单远程来源（可注入，便于单测与替换传输层） */
 interface ManifestSource {
@@ -31,6 +32,20 @@ class ManifestRepository(
     private val source: ManifestSource = HttpDownloader(),
 ) {
 
+    /** 仅从本地缓存或内置兜底读取清单，绝不触发网络请求（供 UI 首屏与下载起手即时响应）。 */
+    fun loadLocalOnly(): ModelManifest {
+        val cachedJson = cacheFile().takeIf { it.exists() }?.let { runCatching { it.readText() }.getOrNull() }
+        val cached = cachedJson?.let { ManifestCodec.parse(it) }?.takeIf { accepted(it.version) }
+        if (cached != null) return cached
+        return ModelCatalog.manifest()
+    }
+
+    /** 自定义镜像叠加后的纯本地可用模型列表（零网络阻塞）。 */
+    fun specsLocalOnly(): List<ModelSpec> {
+        val custom = ConfigStore.mirrorBase()
+        return loadLocalOnly().models.map { MirrorResolver.withCustomMirror(it, custom) }
+    }
+
     fun load(force: Boolean = false): ModelManifest {
         val cachedJson = cacheFile().takeIf { it.exists() }?.let { runCatching { it.readText() }.getOrNull() }
         val cached = cachedJson?.let { ManifestCodec.parse(it) }?.takeIf { accepted(it.version) }
@@ -39,6 +54,17 @@ class ManifestRepository(
             Log.i(TAG, "MANIFEST|source=cache|version=${cached.version}")
             return cached
         }
+        val now = System.currentTimeMillis()
+        if (!force && lastRemoteAttemptAt > 0L && now - lastRemoteAttemptAt < RETRY_COOLDOWN_MS) {
+            if (cached != null) {
+                Log.i(TAG, "MANIFEST|source=cache(cooldown)|version=${cached.version}")
+                return cached
+            }
+            val builtin = ModelCatalog.manifest()
+            Log.i(TAG, "MANIFEST|source=builtin(cooldown)|version=${builtin.version}")
+            return builtin
+        }
+        lastRemoteAttemptAt = now
         val remoteJson = fetchFirstValid()
         val remote = remoteJson?.let { ManifestCodec.parse(it) }
         if (remote != null && (cached == null || remote.version >= cached.version)) {
@@ -104,6 +130,12 @@ class ManifestRepository(
         /** 缓存有效期：6 小时（避免每次启动都打网络） */
         private const val TTL_MS = 6L * 60L * 60L * 1000L
 
+        /** 远程清单拉取失败后的冷却窗口：10 分钟（避免断网/超时反复阻塞下载与界面） */
+        private const val RETRY_COOLDOWN_MS = 10L * 60L * 1000L
+
+        @Volatile
+        private var lastRemoteAttemptAt: Long = 0L
+
         /**
          * 纯逻辑（可单测）：按序尝试 [urls]，返回首个「可取回 + 校验通过 + 版本不低于下限」的清单。
          * 任一环节不合格立即换下一个来源；全部失败返回 null（由调用方降级到缓存/内置）。
@@ -132,6 +164,30 @@ object ModelRegistry {
 
     @Volatile
     private var cached: List<ModelSpec>? = null
+
+    private val refreshInFlight = AtomicBoolean(false)
+
+    fun specsLocalOnly(context: Context): List<ModelSpec> {
+        val cur = cached
+        if (cur != null) return cur
+        val list = ManifestRepository(context).specsLocalOnly()
+        cached = list
+        return list
+    }
+
+    fun refreshAsyncIfNeeded(context: Context) {
+        if (!refreshInFlight.compareAndSet(false, true)) return
+        val appCtx = context.applicationContext
+        Thread({
+            try {
+                cached = ManifestRepository(appCtx).specs(force = false)
+            } catch (t: Throwable) {
+                Log.w("ModelRegistry", "async manifest refresh skipped: ${t.javaClass.simpleName}")
+            } finally {
+                refreshInFlight.set(false)
+            }
+        }, "manifest-refresh").apply { isDaemon = true }.start()
+    }
 
     fun specs(context: Context, force: Boolean = false): List<ModelSpec> {
         val cur = cached

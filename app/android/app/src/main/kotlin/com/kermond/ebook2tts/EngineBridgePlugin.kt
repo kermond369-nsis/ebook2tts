@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.kermond.ebook2tts.core.MirrorResolver
 import com.kermond.ebook2tts.core.ModelCatalog
 import com.kermond.ebook2tts.core.ModelSpec
 import com.kermond.ebook2tts.core.OnlineSettings
@@ -13,7 +14,7 @@ import com.kermond.ebook2tts.core.TtsProviderKind
 import com.kermond.ebook2tts.core.VoiceCatalog
 import com.kermond.ebook2tts.engine.ConfigStore
 import com.kermond.ebook2tts.engine.DownloadService
-import com.kermond.ebook2tts.engine.ManifestRepository
+import com.kermond.ebook2tts.engine.ModelRegistry
 import com.kermond.ebook2tts.engine.OnlineBackendHolder
 import com.kermond.ebook2tts.engine.OnlineRequest
 import com.kermond.ebook2tts.engine.OnlineSelector
@@ -62,6 +63,7 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         // 试听不在此进程持有播放器：推理只允许在 :tts_service（见 PreviewService 注释）
         EngineHostApi.setUp(binding.binaryMessenger, this)
         registerStatusReceiver()
+        ModelRegistry.refreshAsyncIfNeeded(context)
         log("bridge attached")
     }
 
@@ -230,10 +232,10 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         )
     }
 
-    override suspend fun models(): List<ModelDto> = withContext(Dispatchers.IO) {
+    override suspend fun models(): List<ModelDto> {
         val active = ConfigStore.modelId()
-        val list = runCatching { ManifestRepository(context).specs() }.getOrElse { ModelCatalog.ALL }
-        list.map { spec ->
+        val list = runCatching { ModelRegistry.specsLocalOnly(context) }.getOrElse { ModelCatalog.ALL }
+        return list.map { spec ->
             ModelDto(
                 id = spec.id,
                 label = spec.label,
@@ -255,15 +257,25 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         log("download start $modelId")
         val spec = runCatching { ModelCatalog.byId(modelId) }.getOrNull()
         val initTotal = (spec?.downloadBytes ?: 0L) + (spec?.files?.vocoderBytes ?: 0L)
-        emit(
-            "progress",
-            JSONObject()
-                .put("modelId", modelId)
-                .put("received", 0L)
-                .put("total", initTotal)
-                .put("phase", "probe")
-                .toString(),
-        )
+        val selectedMirror = ConfigStore.mirrorSelection()
+        val initPhase = MirrorResolver.initialPhase(selectedMirror)
+        val initSource = if (MirrorResolver.isAuto(selectedMirror) || spec == null) {
+            ""
+        } else {
+            MirrorResolver.orderedSources(spec, selectedMirror, ConfigStore.mirrorBase())
+                .firstOrNull()
+                ?.let { MirrorResolver.hostLabel(it) }
+                .orEmpty()
+        }
+        val initJson = JSONObject()
+            .put("modelId", modelId)
+            .put("received", 0L)
+            .put("total", initTotal)
+            .put("phase", initPhase)
+        if (initSource.isNotEmpty()) {
+            initJson.put("sourceLabel", initSource)
+        }
+        emit("progress", initJson.toString())
         emit("status", JSONObject().put("modelId", modelId).put("state", "downloading").toString())
         startProgressWatch(modelId)
     }
@@ -303,6 +315,7 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         ConfigStore.setModelId(modelId)
         ConfigStore.notifyReload(context, "bridge_active_model")
         log("active model -> $modelId")
+        emit("model", JSONObject().put("modelId", modelId).put("active", true).toString())
         emit("status", JSONObject().put("modelId", modelId).put("state", "reloading").toString())
     }
 
@@ -382,7 +395,10 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         keyKind?.let { ConfigStore.setOnlineKeyKind(it) }
         apiKey?.let { ConfigStore.setOnlineApiKey(it.trim()) }
         baseUrl?.let { ConfigStore.setOnlineBaseUrl(it.trim()) }
-        customMirror?.let { ConfigStore.setMirrorBase(it.trim()) }
+        customMirror?.let {
+            ConfigStore.setMirrorBase(it.trim())
+            ModelRegistry.invalidate()
+        }
         tokenPlanAccepted?.let { ConfigStore.setOnlineTokenPlanAccepted(it) }
         roleVoiceEnabled?.let { ConfigStore.setRoleVoiceEnabled(it) }
         if (onlineEnabled != null || keyKind != null || apiKey != null ||
@@ -518,22 +534,31 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
                     val mainBytes = if (mainPart.exists()) mainPart.length() else 0L
                     val vocBytes = if (vocPart != null && vocPart.exists()) vocPart.length() else 0L
                     val received = (mainBytes + vocBytes).coerceAtMost(total)
+                    val selectedMirror = ConfigStore.mirrorSelection()
+                    val manualSource = if (MirrorResolver.isAuto(selectedMirror)) {
+                        ""
+                    } else {
+                        MirrorResolver.orderedSources(spec, selectedMirror, ConfigStore.mirrorBase())
+                            .firstOrNull()
+                            ?.let { MirrorResolver.hostLabel(it) }
+                            .orEmpty()
+                    }
                     val phase = when {
                         vocBytes > 0L -> "download_vocoder"
                         mainBytes > 0L -> "download"
-                        else -> "probe"
+                        else -> MirrorResolver.initialPhase(selectedMirror)
                     }
-                    emit(
-                        "progress",
-                        JSONObject()
-                            .put("modelId", modelId)
-                            .put("received", received)
-                            .put("total", total)
-                            .put("phase", phase)
-                            .toString(),
-                    )
+                    val fallbackJson = JSONObject()
+                        .put("modelId", modelId)
+                        .put("received", received)
+                        .put("total", total)
+                        .put("phase", phase)
+                    if (manualSource.isNotEmpty()) {
+                        fallbackJson.put("sourceLabel", manualSource)
+                    }
+                    emit("progress", fallbackJson.toString())
                 }
-                delay(650)
+                delay(1500)
             }
         }
     }

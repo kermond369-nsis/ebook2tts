@@ -51,7 +51,7 @@ object ModelCatalog {
     const val DEFAULT_ID = "kokoro-int8"
 
     /** 内置兜底清单版本（与仓库根 manifest.json 由单测绑定一致；远程清单版本更高时以远程为准） */
-    const val BUILTIN_MANIFEST_VERSION: Long = 2026112301L
+    const val BUILTIN_MANIFEST_VERSION: Long = 2026112302L
     const val BUILTIN_MANIFEST_UPDATED_AT: String = "2026-11-23"
     private const val GH =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models"
@@ -73,34 +73,9 @@ object ModelCatalog {
 
     val ALL: List<ModelSpec> = listOf(
         ModelSpec(
-            id = "kokoro-int8",
-            label = "Kokoro int8（主推）",
-            desc = "中英多音色，103 音色，体积与质量最平衡。首次引导默认下载。",
-            archiveName = "kokoro-int8-multi-lang-v1_1.tar.bz2",
-            primaryUrl = GH + "/kokoro-int8-multi-lang-v1_1.tar.bz2",
-            mirrorUrl = acc(ACC_PRIMARY, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
-            extraMirrors = listOf(
-                acc(ACC_ORG, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
-                acc(ACC_EDGEONE, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
-                acc(ACC_CDN, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
-            ),
-            downloadBytes = 147_052_523L,
-            extractedBytes = 215_321_602L,
-            sha256 = "259c9c8bc906d6078e4e0570421885dabb68b539c2f970fcbb890a58eeaf3e9c",
-            files = ModelFiles(
-                kind = "kokoro",
-                modelName = "model.int8.onnx",
-                voices = "voices.bin",
-                lexicon = "lexicon-us-en.txt,lexicon-zh.txt",
-                dataDir = "espeak-ng-data",
-                ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst",
-            ),
-            recommended = true,
-        ),
-        ModelSpec(
             id = "matcha-zh-en",
-            label = "Matcha 中英轻量（流畅推荐）",
-            desc = "中英混排 Flow-Matching 端侧模型（配 Vocos 声码器），语调更自然、速度显著快于 Kokoro。",
+            label = "Matcha 中英轻量（流畅主推）",
+            desc = "中英混排 Flow-Matching + Vocos 声码器，清晰自然无金属底噪，端侧速度远快于 Kokoro。",
             archiveName = "matcha-icefall-zh-en.tar.bz2",
             primaryUrl = GH + "/matcha-icefall-zh-en.tar.bz2",
             mirrorUrl = acc(ACC_PRIMARY, "matcha-icefall-zh-en.tar.bz2"),
@@ -123,12 +98,13 @@ object ModelCatalog {
                 vocoderSha256 = "b599142a1fb8ff03de3e84ac35ff537c619e56f4267a6fe894851a42844acf9e",
                 vocoderBytes = 53_882_848L,
             ),
+            recommended = true,
             lowEndDefault = true,
         ),
         ModelSpec(
             id = "vits-zh-ll",
-            label = "VITS zh-ll（保底）",
-            desc = "中文 5 音色，保底档（本地合成下限机型）默认推荐。实测约 119MB。",
+            label = "VITS zh-ll（极速清晰·5 音色）",
+            desc = "中文 5 音色，端侧合成速度最快、语音干净稳定，适合中低配手机或长时听书。实测约 119MB。",
             archiveName = "sherpa-onnx-vits-zh-ll.tar.bz2",
             primaryUrl = GH + "/sherpa-onnx-vits-zh-ll.tar.bz2",
             mirrorUrl = acc(ACC_PRIMARY, "sherpa-onnx-vits-zh-ll.tar.bz2"),
@@ -150,8 +126,8 @@ object ModelCatalog {
         ),
         ModelSpec(
             id = "kokoro-fp32",
-            label = "Kokoro fp32（高端可选）",
-            desc = "更高音质，约 365MB 下载 / 427MB 解压。",
+            label = "Kokoro fp32（103 音色·高负载）",
+            desc = "全精度 103 音色、音质无量化杂音，但 82M 模型 CPU 计算量很大，建议在设置中调高至 4 线程并在旗舰机型使用。约 365MB 下载 / 427MB 解压。",
             archiveName = "kokoro-multi-lang-v1_1.tar.bz2",
             primaryUrl = GH + "/kokoro-multi-lang-v1_1.tar.bz2",
             mirrorUrl = acc(ACC_PRIMARY, "kokoro-multi-lang-v1_1.tar.bz2"),
@@ -172,6 +148,30 @@ object ModelCatalog {
                 ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst",
             ),
             highEndOnly = true,
+        ),
+        ModelSpec(
+            id = "kokoro-int8",
+            label = "Kokoro int8（103 音色·量化版）",
+            desc = "含 103 音色；注意上游 int8 量化版在 ARM 端存在已知高频金属底噪（4.8/9.6kHz）且推理偏慢，追求清晰流畅请优先选 Matcha 或 VITS。",
+            archiveName = "kokoro-int8-multi-lang-v1_1.tar.bz2",
+            primaryUrl = GH + "/kokoro-int8-multi-lang-v1_1.tar.bz2",
+            mirrorUrl = acc(ACC_PRIMARY, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
+            extraMirrors = listOf(
+                acc(ACC_ORG, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
+                acc(ACC_EDGEONE, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
+                acc(ACC_CDN, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
+            ),
+            downloadBytes = 147_052_523L,
+            extractedBytes = 215_321_602L,
+            sha256 = "259c9c8bc906d6078e4e0570421885dabb68b539c2f970fcbb890a58eeaf3e9c",
+            files = ModelFiles(
+                kind = "kokoro",
+                modelName = "model.int8.onnx",
+                voices = "voices.bin",
+                lexicon = "lexicon-us-en.txt,lexicon-zh.txt",
+                dataDir = "espeak-ng-data",
+                ruleFsts = "phone-zh.fst,date-zh.fst,number-zh.fst",
+            ),
         ),
     )
 

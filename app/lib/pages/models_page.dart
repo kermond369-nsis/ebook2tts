@@ -54,7 +54,7 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
       children: [
         const SectionCard(
           title: '端侧语音模型',
-          subtitle: '支持断点续传、下拉切换加速镜像与本地导入。推荐优先使用 Matcha（中英轻量更流畅）或 Kokoro int8（103 音色）。',
+          subtitle: '支持断点续传、下拉切换加速镜像与本地导入。推荐优先使用 Matcha（清晰流畅）或 VITS（极速稳定）；Kokoro int8 上游量化版含高频底噪且偏慢，fp32 音质纯净但端侧负载高。',
           child: SizedBox.shrink(),
         ),
         _MirrorSelectorCard(
@@ -392,10 +392,16 @@ class _ModelCard extends ConsumerWidget {
         : model.installed
             ? const StatusChip(label: '已安装', color: Tokens.cloud)
             : isMatcha
-                ? const StatusChip(label: '流畅推荐', color: Tokens.accent)
-                : model.recommended
-                    ? const StatusChip(label: '多音色主推', color: Tokens.hybrid)
-                    : null;
+                ? const StatusChip(label: '流畅主推', color: Tokens.accent)
+                : model.id == 'vits-zh-ll'
+                    ? const StatusChip(label: '极速清晰', color: Tokens.cloud)
+                    : model.id == 'kokoro-fp32'
+                        ? const StatusChip(label: '高负载', color: Tokens.hybrid)
+                        : model.id == 'kokoro-int8'
+                            ? const StatusChip(label: '量化有噪', color: Tokens.danger)
+                            : model.recommended
+                                ? const StatusChip(label: '推荐', color: Tokens.accent)
+                                : null;
 
     final isIndeterminate = active &&
         const {'probe', 'verify', 'extract', 'promote', 'import'}
@@ -493,14 +499,16 @@ class _ModelCard extends ConsumerWidget {
             Row(
               children: [
                 Expanded(
+                  flex: 3,
                   child: PrimaryButton(
-                    label: '切换为当前模型',
+                    label: '启用此模型',
                     icon: Icons.play_circle_outline_rounded,
                     onPressed: () => _setActive(context, ref),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
+                  flex: 2,
                   child: SecondaryButton(
                     label: '删除',
                     icon: Icons.delete_outline_rounded,
@@ -561,6 +569,9 @@ class _ModelCard extends ConsumerWidget {
 
   Future<void> _setActive(BuildContext context, WidgetRef ref) async {
     await ref.read(engineServiceProvider).setActiveModel(model.id);
+    ref.invalidate(modelsProvider);
+    ref.invalidate(statusProvider);
+    ref.invalidate(voicesProvider);
     if (context.mounted) {
       showAppSnack(context, '已设为使用中：${model.label}');
     }
@@ -593,6 +604,9 @@ class _ModelCard extends ConsumerWidget {
     );
     if (ok == true) {
       await ref.read(engineServiceProvider).deleteModel(model.id);
+      ref.invalidate(modelsProvider);
+      ref.invalidate(statusProvider);
+      ref.invalidate(voicesProvider);
       if (context.mounted) {
         showAppSnack(context, '已删除：${model.label}');
       }

@@ -97,10 +97,18 @@ class PigeonEngineService implements EngineService {
   Future<void> cancelDownload() => _host.cancelDownload();
 
   @override
-  Future<void> deleteModel(String modelId) => _host.deleteModel(modelId);
+  Future<void> deleteModel(String modelId) async {
+    await _host.deleteModel(modelId);
+    _emit('model', <String, dynamic>{'modelId': modelId, 'installed': false});
+    await _emitStatusSnapshot();
+  }
 
   @override
-  Future<void> setActiveModel(String modelId) => _host.setActiveModel(modelId);
+  Future<void> setActiveModel(String modelId) async {
+    await _host.setActiveModel(modelId);
+    _emit('model', <String, dynamic>{'modelId': modelId, 'active': true});
+    await _emitStatusSnapshot();
+  }
 
   @override
   Future<List<VoiceInfo>> voices() async {

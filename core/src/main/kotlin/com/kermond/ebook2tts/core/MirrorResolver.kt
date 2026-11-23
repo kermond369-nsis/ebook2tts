@@ -125,4 +125,12 @@ object MirrorResolver {
         }
         return afterProto.substringBefore('/').substringBefore(':').lowercase().ifEmpty { trimmed }
     }
+
+    /** 当前是否处于“自动测速选最快”策略（空串或 `auto`）。 */
+    fun isAuto(selectedMirror: String): Boolean =
+        selectedMirror.trim().let { it.isEmpty() || it == MIRROR_AUTO }
+
+    /** 下载启动首阶段：自动模式为 `probe`（测速选源），手动指定源直接进入 `download`。 */
+    fun initialPhase(selectedMirror: String): String =
+        if (isAuto(selectedMirror)) "probe" else "download"
 }
