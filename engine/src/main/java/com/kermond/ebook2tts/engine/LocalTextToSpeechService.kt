@@ -34,8 +34,10 @@ class LocalTextToSpeechService : TextToSpeechService() {
         coordinator = CoordinatorHolder.getOrCreate(this)
         if (ConfigStore.routeMode().allowsLocal) {
             coordinator.ensureWarmIfIdleReleased()
+            if (!coordinator.isBackendReady()) {
+                ConfigStore.setStatusState("INITIALIZING")
+            }
         }
-        ConfigStore.setStatusState("INITIALIZING")
         ConfigStore.notifyStatus(this, "INIT")
 
         val filter = IntentFilter(ConfigStore.ACTION_ENGINE_RELOAD)
@@ -87,7 +89,7 @@ class LocalTextToSpeechService : TextToSpeechService() {
     private fun isServiceAvailable(): Boolean {
         val mode = ConfigStore.routeMode()
         val localOk = mode.allowsLocal &&
-            (ConfigStore.statusState() != "NO_MODEL" || ModelPresence.isActiveModelInstalled(this))
+            (ModelPresence.isActiveModelInstalled(this) || ModelPresence.hasAnyInstalled(this))
         return localOk || ModelPresence.isOnlineConfigured()
     }
 

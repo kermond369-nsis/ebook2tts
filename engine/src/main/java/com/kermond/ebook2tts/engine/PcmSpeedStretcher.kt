@@ -68,9 +68,12 @@ class PcmSpeedStretcher(private val speed: Float) {
         if (dead || isNoop(speed) || !configured) return ByteArray(0)
         return try {
             processor.queueEndOfStream()
-            drain()
+            val out = drain()
+            configured = false
+            out
         } catch (t: Throwable) {
             dead = true
+            configured = false
             Log.w(TAG, "stretch end failed: ${t.javaClass.simpleName}: ${t.message}")
             ByteArray(0)
         }

@@ -86,7 +86,26 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 val code = intent?.getStringExtra("code").orEmpty()
-                emit("status", JSONObject().put("phase", "engine_status").put("code", code).toString())
+                val payload = JSONObject().put("phase", "engine_status").put("code", code)
+                when {
+                    code.startsWith("PREVIEW_START|") -> {
+                        val voice = code.removePrefix("PREVIEW_START|")
+                        payload.put("previewing", true)
+                        if (voice.isNotEmpty()) payload.put("previewVoiceId", voice)
+                    }
+                    code == "PREVIEW_DONE" -> payload.put("previewing", false)
+                    code.startsWith("PREVIEW_ERROR|") -> {
+                        payload.put("previewing", false)
+                        payload.put("previewError", code.removePrefix("PREVIEW_ERROR|"))
+                    }
+                    code == "PERF" -> {
+                        val perf = ConfigStore.lastPerfMap()
+                        if (perf.isNotEmpty()) {
+                            payload.put("perf", JSONObject(perf))
+                        }
+                    }
+                }
+                emit("status", payload.toString())
             }
         }
         runCatching {
@@ -103,16 +122,17 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
     // ---------------------------------------------------------------- 状态
 
     override suspend fun status(): EngineStatusDto {
+        val modelId = ConfigStore.modelId().takeIf { isInstalled(it) }
+        val installed = modelId != null
         val state = when (ConfigStore.statusState()) {
             "NO_MODEL" -> "noModel"
+            "IDLE_RELEASED" -> if (installed) "ready" else "noModel"
             "INITIALIZING", "LOADING", "INIT" -> "loading"
             "READY" -> "ready"
             "RELOADING" -> "reloading"
             "ERROR" -> "error"
             else -> "noModel"
         }
-        val modelId = ConfigStore.modelId().takeIf { isInstalled(it) }
-        val installed = modelId != null
         val providerKind = ConfigStore.onlineProviderKind()
         val onlineOk = OnlineSelector.isOnlineConfigured(
             routeMode = ConfigStore.routeMode(),
@@ -125,9 +145,9 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         )
         val online = when {
             !ConfigStore.onlineEnabled() -> "off"
-            !onlineOk && ConfigStore.onlineApiKey().isBlank() -> "noKey"
+            !onlineOk && providerKind == TtsProviderKind.MIMO && ConfigStore.onlineApiKey().isBlank() -> "noKey"
             !onlineOk -> "error"
-            ConfigStore.statusLastError().isNotBlank() -> "error"
+            ConfigStore.onlineLastError().isNotBlank() -> "error"
             else -> "ready"
         }
         return EngineStatusDto(
@@ -231,6 +251,7 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
 
     override suspend fun stopPreview() {
         PreviewService.stop(context)
+        emit("status", JSONObject().put("phase", "preview_stopped").put("previewing", false).toString())
         emit("progress", JSONObject().put("phase", "preview_stopped").toString())
     }
 
@@ -275,6 +296,11 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         customMirror?.let { ConfigStore.setMirrorBase(it.trim()) }
         tokenPlanAccepted?.let { ConfigStore.setOnlineTokenPlanAccepted(it) }
         roleVoiceEnabled?.let { ConfigStore.setRoleVoiceEnabled(it) }
+        if (onlineEnabled != null || keyKind != null || apiKey != null ||
+            baseUrl != null || tokenPlanAccepted != null
+        ) {
+            ConfigStore.setOnlineLastError("")
+        }
         ConfigStore.notifyReload(context, "bridge_config")
         log("config updated")
         emit("status", JSONObject().put("phase", "config").toString())
@@ -288,8 +314,8 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         emit("status", JSONObject().put("phase", "perf_cleared").toString())
     }
 
-    override suspend fun validateKey(keyKind: String, apiKey: String): String? =
-        withContext(Dispatchers.IO) {
+    override suspend fun validateKey(keyKind: String, apiKey: String): String? {
+        val err = withContext(Dispatchers.IO) {
             val providerKind = ConfigStore.onlineProviderKind()
             val input = apiKey.trim()
             val key = if (input.isNotEmpty()) input else ConfigStore.onlineApiKey().trim()
@@ -316,6 +342,10 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
             )
             OnlineBackendHolder.get().validate(req)
         }
+        ConfigStore.setOnlineLastError(err.orEmpty())
+        emit("status", JSONObject().put("phase", "validate").put("ok", err == null).toString())
+        return err
+    }
 
     // ---------------------------------------------------------------- 内部
 
@@ -342,7 +372,12 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
     private fun isInstalled(modelId: String): Boolean {
         val spec: ModelSpec = runCatching { ModelCatalog.byId(modelId) }.getOrNull() ?: return false
         val dir = File(modelsDir(), spec.id)
-        return File(dir, ".completed").exists() && File(dir, spec.files.modelName).exists()
+        if (!File(dir, ".completed").exists() || !File(dir, spec.files.modelName).exists()) return false
+        if (spec.files.vocoder.isNotEmpty()) {
+            val voc = File(dir, spec.files.vocoder)
+            if (!voc.exists() || voc.length() <= 0L) return false
+        }
+        return true
     }
 
     private fun mask(key: String): String {
@@ -351,27 +386,39 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         return "$head••••••••${key.takeLast(4)}"
     }
 
-    /** 下载期按 `.part` 实际长度推流进度（只读文件长度，不触碰引擎内部状态）。 */
+    /** 下载期按 `.part` 实际长度推流进度（含 Matcha 声码器 `.part`，只读文件长度）。 */
     private fun startProgressWatch(modelId: String) {
         progressJob?.cancel()
         val spec = runCatching { ModelCatalog.byId(modelId) }.getOrNull() ?: return
         val staging = File(context.filesDir, "models-staging")
+        val mainPart = File(staging, "${spec.archiveName}.part")
+        val vocPart = if (spec.files.vocoder.isNotEmpty()) {
+            File(staging, "${spec.id}-${spec.files.vocoder}.part")
+        } else {
+            null
+        }
+        val total = spec.downloadBytes + spec.files.vocoderBytes
         progressJob = scope.launch {
             while (isActive) {
-                val part = staging.listFiles()?.firstOrNull { it.name.endsWith(".part") }
-                val received = part?.length() ?: 0L
-                val total = spec.downloadBytes
-                val done = isInstalled(modelId)
+                val mainBytes = if (mainPart.exists()) mainPart.length() else 0L
+                val vocBytes = if (vocPart != null && vocPart.exists()) vocPart.length() else 0L
+                val received = (mainBytes + vocBytes).coerceAtMost(total)
+                val phase = when {
+                    isInstalled(modelId) -> "done"
+                    vocBytes > 0L -> "download_vocoder"
+                    mainBytes > 0L -> "download"
+                    else -> "probe"
+                }
                 emit(
                     "progress",
                     JSONObject()
                         .put("modelId", modelId)
                         .put("received", received)
                         .put("total", total)
-                        .put("phase", if (done) "done" else if (received > 0) "download" else "probe")
+                        .put("phase", phase)
                         .toString(),
                 )
-                if (done) {
+                if (phase == "done") {
                     emit("model", JSONObject().put("modelId", modelId).put("installed", true).toString())
                     break
                 }

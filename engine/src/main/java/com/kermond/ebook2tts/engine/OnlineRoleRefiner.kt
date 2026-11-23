@@ -2,10 +2,13 @@ package com.kermond.ebook2tts.engine
 
 import android.content.Context
 import android.util.Log
+import com.kermond.ebook2tts.core.NetPolicy
 import com.kermond.ebook2tts.core.OnlineRolePolicy
 import com.kermond.ebook2tts.core.OnlineSettings
 import com.kermond.ebook2tts.core.RoleRefinePrompt
 import com.kermond.ebook2tts.core.RoleVoiceDesign
+import com.kermond.ebook2tts.core.RouteMode
+import com.kermond.ebook2tts.core.TtsProviderKind
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -41,8 +44,13 @@ class OnlineRoleRefiner(
             Log.w(TAG, "ROLE|refine|refused=engine_process")
             return Result(0, "engine_process")
         }
+        if (ConfigStore.routeMode() == RouteMode.ONLY_LOCAL) return Result(0, "only_local")
         if (!ConfigStore.onlineEnabled()) return Result(0, "online_disabled")
+        if (ConfigStore.onlineProviderKind() != TtsProviderKind.MIMO) return Result(0, "provider_unsupported")
         if (!ConfigStore.roleVoiceEnabled()) return Result(0, "role_disabled")
+        if (!NetPolicy.allowsNetwork(ConfigStore.netAllowMobileData(), NetState.onCellular(context))) {
+            return Result(0, "cellular_disallowed")
+        }
         val key = ConfigStore.onlineApiKey().trim()
         if (key.isEmpty()) return Result(0, "no_key")
         val kind = ConfigStore.onlineKeyKind()

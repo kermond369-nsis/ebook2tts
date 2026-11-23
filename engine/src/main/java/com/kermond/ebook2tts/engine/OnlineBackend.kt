@@ -141,7 +141,7 @@ class OnlineBackend(
                     .build()
                 client.newCall(req).execute().use { resp ->
                     val body = resp.body?.string().orEmpty()
-                    if (resp.isSuccessful) null else ("HTTP ${resp.code}: $body").take(200)
+                    if (resp.isSuccessful) null else ErrorSanitizer.sanitize("HTTP ${resp.code}: $body")
                 }
             })
         } catch (_: RejectedExecutionException) {
@@ -150,7 +150,7 @@ class OnlineBackend(
         return try {
             job.get()
         } catch (e: ExecutionException) {
-            (e.cause?.message ?: "网络错误").take(200)
+            ErrorSanitizer.sanitize(e.cause?.message ?: "网络错误")
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             job.cancel(true)

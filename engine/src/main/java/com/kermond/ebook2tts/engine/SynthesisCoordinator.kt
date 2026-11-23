@@ -162,6 +162,7 @@ class SynthesisCoordinator(
 
     fun state() = sm.state
     fun lastError() = sm.lastError
+    fun isBackendReady(): Boolean = backend?.isReady() == true
 
     fun initAsync() {
         reloadExecutor.execute { reloadInternal() }
@@ -287,7 +288,9 @@ class SynthesisCoordinator(
                     sm.onNoModel("model_missing")
                     ConfigStore.setStatusState("NO_MODEL")
                     ConfigStore.setStatusModelId(spec.id)
-                    ConfigStore.setStatusLastError("模型未安装")
+                    ConfigStore.setStatusLastError(
+                        if (ConfigStore.routeMode().allowsLocal) "模型未安装" else ""
+                    )
                     return@withLock
                 }
                 sm.onInitStart()
@@ -601,7 +604,7 @@ class SynthesisCoordinator(
             if (seg.kind == SegmentKind.EMPTY) continue
             val onlineBase = if (seg.kind == SegmentKind.TITLE) TextClean.chapterSpeakText(seg.text) else seg.text
             if (onlineBase.isBlank()) continue
-            if (!didMicroCut && seg.kind != SegmentKind.TITLE && onlineBase.length > 16) {
+            if (!useOnline && !didMicroCut && seg.kind != SegmentKind.TITLE && onlineBase.length > 16) {
                 didMicroCut = true
                 val (head, rest) = TextAnalyzer.firstSegmentMicroCut(onlineBase)
                 if (rest.isNotBlank()) {
@@ -632,8 +635,8 @@ class SynthesisCoordinator(
         val bytesPushed = AtomicLong(0L)
         val firstPushAt = AtomicLong(0L)
 
-        /** callback.start 的采样率＝实际产出首个音频的后端采样率 */
-        var streamSr = initialSr
+        /** callback.start 的采样率＝实际产出首个音频的后端采样率（原子读写供推手线程同步可见） */
+        val streamSr = AtomicInteger(initialSr)
         var onlineTtfbLogged = false
 
         val needOnlineStretch = onlineRequest != null &&
@@ -657,10 +660,11 @@ class SynthesisCoordinator(
                 engine = awaitBackend { isStopped() }
             }
             val local = engine?.takeIf { it.isReady() }
+            val curSr = streamSr.get()
             val action = OnlineFallback.decide(
                 anyAudioEnqueued = audioCommitted.get(),
                 localSampleRate = local?.sampleRate ?: 0,
-                onlineSampleRate = streamSr,
+                onlineSampleRate = curSr,
                 allowsLocal = route.routeMode.allowsLocal,
                 localBackendAvailable = local != null,
             )
@@ -668,7 +672,7 @@ class SynthesisCoordinator(
                 fallbackLogged = true
                 val suffix = when {
                     local == null -> "|no_local_backend"
-                    action == FallbackAction.STAY_ONLINE -> "|resample=${local.sampleRate}->$streamSr"
+                    action == FallbackAction.STAY_ONLINE -> "|resample=${local.sampleRate}->$curSr"
                     else -> ""
                 }
                 Log.w(
@@ -680,10 +684,10 @@ class SynthesisCoordinator(
             if (local != null) {
                 useOnline = false
                 if (!audioCommitted.get()) {
-                    streamSr = local.sampleRate
+                    streamSr.set(local.sampleRate)
                     localFallbackResampler = null
-                } else if (local.sampleRate != streamSr) {
-                    localFallbackResampler = StreamingPcmResampler(local.sampleRate, streamSr)
+                } else if (local.sampleRate != curSr) {
+                    localFallbackResampler = StreamingPcmResampler(local.sampleRate, curSr)
                 }
             }
         }
@@ -696,8 +700,9 @@ class SynthesisCoordinator(
                     return false
                 }
                 try {
+                    val activeSr = streamSr.get()
                     if (!started.get()) {
-                        val rc = callback.start(streamSr, AudioFormat.ENCODING_PCM_16BIT, 1)
+                        val rc = callback.start(activeSr, AudioFormat.ENCODING_PCM_16BIT, 1)
                         if (rc != android.speech.tts.TextToSpeech.SUCCESS) {
                             aborted.set(true)
                             return false
@@ -734,21 +739,21 @@ class SynthesisCoordinator(
             var held: ByteArray? = null
             var firstPending = true
             var stretchedAny = false
-            var stretcherFlushed = false
             val stretcher = PcmSpeedStretcher(speed)
 
             /** 推送一块（含首/尾微淡化）；返回 false = 已中止 */
             fun pushOne(block: ByteArray, isLast: Boolean): Boolean {
                 if (block.isEmpty()) return true
+                val srNow = streamSr.get()
                 val out = when {
                     isLast && firstPending -> {
                         firstPending = false
-                        PcmChunker.fadeEdges(block, streamSr, 3)
+                        PcmChunker.fadeEdges(block, srNow, 3)
                     }
-                    isLast -> PcmChunker.fadeTail(block, streamSr, 3)
+                    isLast -> PcmChunker.fadeTail(block, srNow, 3)
                     firstPending -> {
                         firstPending = false
-                        PcmChunker.fadeHead(block, streamSr, 3)
+                        PcmChunker.fadeHead(block, srNow, 3)
                     }
                     else -> block
                 }
@@ -759,8 +764,8 @@ class SynthesisCoordinator(
                 while (true) {
                     val blk = queue.take()
                     if (blk.pcm.isEmpty()) break
-                    if (!blk.stretch && stretchedAny && !stretcherFlushed) {
-                        stretcherFlushed = true
+                    if (!blk.stretch && stretchedAny) {
+                        stretchedAny = false
                         val flushed = stretcher.end()
                         if (flushed.isNotEmpty()) {
                             held?.let { if (!pushOne(it, isLast = false)) return@submit }
@@ -769,7 +774,7 @@ class SynthesisCoordinator(
                     }
                     val processed = if (blk.stretch) {
                         stretchedAny = true
-                        stretcher.process(blk.pcm, streamSr)
+                        stretcher.process(blk.pcm, streamSr.get())
                     } else {
                         blk.pcm
                     }
@@ -778,7 +783,7 @@ class SynthesisCoordinator(
                     held = processed
                 }
                 // 榨出 Sonic 内部残余样本，否则末段会被截断
-                val tail = if (stretchedAny && !stretcherFlushed) stretcher.end() else ByteArray(0)
+                val tail = if (stretchedAny) stretcher.end() else ByteArray(0)
                 if (tail.isNotEmpty()) {
                     held?.let { if (!pushOne(it, isLast = false)) return@submit }
                     held = tail
@@ -838,12 +843,16 @@ class SynthesisCoordinator(
 
         fun emitOnlineChunk(chunk: TtsAudioChunk, activeResampler: StreamingPcmResampler?): StreamingPcmResampler? {
             if (chunk.pcm16Mono.isEmpty()) return activeResampler
-            val chunkSr = if (chunk.sampleRate > 0) chunk.sampleRate else streamSr
-            if (!audioCommitted.get() && chunkSr != streamSr) {
-                streamSr = chunkSr
+            val curSr = streamSr.get()
+            val chunkSr = if (chunk.sampleRate > 0) chunk.sampleRate else curSr
+            val targetSr = if (!audioCommitted.get() && chunkSr != curSr) {
+                streamSr.set(chunkSr)
+                chunkSr
+            } else {
+                curSr
             }
-            val resampler = if (chunkSr != streamSr) {
-                activeResampler ?: StreamingPcmResampler(chunkSr, streamSr)
+            val resampler = if (chunkSr != targetSr) {
+                activeResampler ?: StreamingPcmResampler(chunkSr, targetSr)
             } else {
                 null
             }
@@ -981,6 +990,10 @@ class SynthesisCoordinator(
                         when (outcome) {
                             is OnlineOutcome.Ok -> {
                                 produced = true
+                                if (ConfigStore.onlineLastError().isNotEmpty()) {
+                                    ConfigStore.setOnlineLastError("")
+                                    ConfigStore.notifyStatus(context, "ONLINE_OK")
+                                }
                                 if (!onlineTtfbLogged && outcome.ttfbMs >= 0L) {
                                     onlineTtfbLogged = true
                                     Log.i(TAG, "ONLINE|ttfb_ms=${outcome.ttfbMs}")
@@ -988,6 +1001,8 @@ class SynthesisCoordinator(
                             }
                             OnlineOutcome.Cancelled -> Unit // 停止/中止：循环顶部统一退出
                             is OnlineOutcome.Failed -> {
+                                ConfigStore.setOnlineLastError(outcome.summary)
+                                ConfigStore.notifyStatus(context, "ONLINE_ERR")
                                 cancelPrefetch()
                                 onOnlineFailure(outcome)
                             }
@@ -1015,16 +1030,17 @@ class SynthesisCoordinator(
                             if (!isStopped() && !aborted.get()) enqueue(tail, stretch = false)
                         }
                     }
+                    val srPause = streamSr.get()
                     if (!produced) {
                         dropUnits++
                         ConfigStore.bumpDropUnit()
                         Log.w(TAG, "WARN|DROP_UNIT|$dropUnits|len=${spokenLocal.length}")
                         if (anyAudio.get()) {
                             // 保段序静音占位（绝不因单元失败中止在途音频，红线 2）
-                            enqueue(PcmChunker.silenceMs(150, speed, streamSr), stretch = false)
+                            enqueue(PcmChunker.silenceMs(150, speed, srPause), stretch = false)
                         }
                     } else if (seg.kind != SegmentKind.TITLE && !unit.noTrailingPause) {
-                        enqueue(PcmChunker.silenceMs(120, speed, streamSr), stretch = false)
+                        enqueue(PcmChunker.silenceMs(120, speed, srPause), stretch = false)
                     }
                 }
             } catch (t: Throwable) {
@@ -1061,9 +1077,13 @@ class SynthesisCoordinator(
             reloadExecutor.execute { reloadInternal() }
         }
 
-        val sr = streamSr
+        val sr = streamSr.get()
         val ttfb = if (firstPushAt.get() > 0L) firstPushAt.get() - t0 else -1L
         val totalMs = System.currentTimeMillis() - t0
+        if (anyAudio.get()) {
+            ConfigStore.recordLastPerf(ttfb, totalMs, dropUnits, if (useOnline) "online" else "local")
+            ConfigStore.notifyStatus(context, "PERF")
+        }
         Log.i(
             TAG,
             "PERF|req=$reqId|segs=${segments.size}|chunks=${chunksPushed.get()}" +

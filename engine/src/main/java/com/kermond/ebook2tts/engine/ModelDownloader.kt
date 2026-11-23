@@ -63,7 +63,12 @@ class ModelDownloader(private val context: Context) {
 
     fun isInstalled(spec: ModelSpec): Boolean {
         val dir = File(modelsDir(), spec.id)
-        return File(dir, ".completed").exists() && File(dir, spec.files.modelName).exists()
+        if (!File(dir, ".completed").exists() || !File(dir, spec.files.modelName).exists()) return false
+        if (spec.files.vocoder.isNotEmpty()) {
+            val voc = File(dir, spec.files.vocoder)
+            if (!voc.exists() || voc.length() <= 0L) return false
+        }
+        return true
     }
 
     fun availableBytes(): Long = context.filesDir.usableSpace
@@ -91,7 +96,7 @@ class ModelDownloader(private val context: Context) {
         val s = resolve(spec)
         try {
             if (!checkSpace(s)) {
-                val needMb = ModelCatalog.requiredSpaceBytes(s.extractedBytes) / 1_000_000
+                val needMb = ModelCatalog.requiredSpaceBytes(s.extractedBytes + s.files.vocoderBytes) / 1_000_000
                 progress.onError("空间不足：约需 ${needMb}MB 可用空间")
                 return
             }

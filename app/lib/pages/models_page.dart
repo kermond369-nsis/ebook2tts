@@ -6,7 +6,7 @@ import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/common.dart';
 
-/// 模型管理页（IM-302）：三档卡片 + 假进度（探测→下载→校验→解压→收尾）+ 自定义镜像。
+/// 本地语音模型管理页：突出 Matcha 流畅轻量与 Kokoro 多音色；自定义镜像折叠收纳。
 class ModelsPage extends ConsumerStatefulWidget {
   const ModelsPage({super.key});
 
@@ -37,49 +37,16 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
 
     return PageBody(
       children: [
-        SectionCard(
-          title: '下载镜像（可选）',
-          subtitle: '留空使用官方镜像。网络不畅时可填入自建镜像地址，下载会优先走这里。',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: _mirror,
-                decoration: const InputDecoration(
-                  hintText: '例如 https://你的镜像地址/模型目录',
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: PrimaryButton(
-                      label: '保存镜像',
-                      onPressed: () async {
-                        await ref
-                            .read(configProvider.notifier)
-                            .save(customMirror: _mirror.text.trim());
-                        if (context.mounted) {
-                          showAppSnack(
-                            context,
-                            _mirror.text.trim().isEmpty
-                                ? '已恢复使用官方镜像'
-                                : '镜像已保存，下载将优先使用',
-                          );
-                        }
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+        const SectionCard(
+          title: '端侧语音模型',
+          subtitle: '支持断点续传。推荐优先下载 Matcha（更轻量、句间更快），或选 Kokoro int8 获得上百音色。',
+          child: SizedBox.shrink(),
         ),
         if (models.isLoading && !models.hasValue)
           const SectionCard(
             child: Center(
               child: Padding(
-                padding: EdgeInsets.all(18),
+                padding: EdgeInsets.all(24),
                 child: CircularProgressIndicator(),
               ),
             ),
@@ -87,11 +54,63 @@ class _ModelsPageState extends ConsumerState<ModelsPage> {
         else
           for (final m in models.value ?? const <ModelInfo>[])
             _ModelCard(model: m, progress: progress),
-        SectionCard(
-          title: '说明',
-          subtitle: '模型体积为实测值；下载支持断点续传。已安装的模型会显示「使用中」，'
-              '不能重复下载；如需换用，先「设为使用中」或删除后重下。',
-          child: const SizedBox.shrink(),
+        Container(
+          margin: const EdgeInsets.only(bottom: Tokens.cardGap),
+          decoration: BoxDecoration(
+            color: Tokens.surface,
+            borderRadius: BorderRadius.circular(Tokens.radiusCard),
+            border: Border.all(color: Tokens.divider),
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                iconColor: Tokens.accent,
+                collapsedIconColor: Tokens.textDim,
+                title: const Text(
+                  '高级：自定义下载镜像',
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                    color: Tokens.text,
+                  ),
+                ),
+                subtitle: const Text(
+                  '默认内置多个国内高速镜像，网络不通畅时可手动覆盖',
+                  style: TextStyle(fontSize: 12, color: Tokens.textDim),
+                ),
+                children: [
+                  TextField(
+                    controller: _mirror,
+                    decoration: const InputDecoration(
+                      hintText: 'https://你的镜像地址/模型目录（留空恢复官方测速）',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  PrimaryButton(
+                    label: '保存镜像设置',
+                    icon: Icons.save_outlined,
+                    onPressed: () async {
+                      await ref
+                          .read(configProvider.notifier)
+                          .save(customMirror: _mirror.text.trim());
+                      if (context.mounted) {
+                        showAppSnack(
+                          context,
+                          _mirror.text.trim().isEmpty
+                              ? '已恢复官方与内置加速镜像'
+                              : '自定义镜像已保存，下载将优先使用',
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ],
     );
@@ -108,30 +127,39 @@ class _ModelCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final active = progress != null && progress!.modelId == model.id;
     final anyDownload = progress != null;
+    final isMatcha = model.id == 'matcha-zh-en';
+
+    final Widget? badge = model.active
+        ? const StatusChip(label: '使用中', color: Tokens.accent)
+        : model.installed
+            ? const StatusChip(label: '已安装', color: Tokens.cloud)
+            : isMatcha
+                ? const StatusChip(label: '流畅推荐', color: Tokens.accent)
+                : model.recommended
+                    ? const StatusChip(label: '多音色主推', color: Tokens.hybrid)
+                    : null;
 
     return SectionCard(
       title: model.label,
       subtitle: model.note,
-      trailing: model.active
-          ? const StatusChip(label: '使用中')
-          : model.installed
-              ? const StatusChip(label: '已安装', color: Tokens.textDim)
-              : model.recommended
-                  ? const StatusChip(label: '主推')
-                  : null,
+      borderColor: model.active
+          ? Tokens.accent.withValues(alpha: 0.65)
+          : Tokens.divider,
+      trailing: badge,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
             children: [
               _MetaTag(
                 icon: Icons.download_outlined,
                 text: '下载 ${formatMb(model.downloadBytes)}',
               ),
-              const SizedBox(width: 8),
               _MetaTag(
                 icon: Icons.unarchive_outlined,
-                text: '解压后 ${formatMb(model.extractedBytes)}',
+                text: '解压 ${formatMb(model.extractedBytes)}',
               ),
             ],
           ),
@@ -146,7 +174,7 @@ class _ModelCard extends ConsumerWidget {
                 Expanded(
                   child: Text(
                     '${phaseLabel(progress!.phase)}'
-                    '${progress!.phase == 'download' ? '（${(progress!.fraction * 100).toStringAsFixed(0)}%）' : '…'}',
+                    '${(progress!.phase == 'download' || progress!.phase == 'download_vocoder') ? '（${(progress!.fraction * 100).toStringAsFixed(0)}%）' : '…'}',
                     style: const TextStyle(
                       fontSize: 13,
                       color: Tokens.accent,
@@ -158,7 +186,7 @@ class _ModelCard extends ConsumerWidget {
                   progress!.total <= 0
                       ? ''
                       : '${(progress!.received / 1000000).toStringAsFixed(1)} / '
-                          '${(progress!.total / 1000000).toStringAsFixed(1)} 兆',
+                          '${(progress!.total / 1000000).toStringAsFixed(1)} MB',
                   style: const TextStyle(fontSize: 12, color: Tokens.textDim),
                 ),
               ],
@@ -166,15 +194,15 @@ class _ModelCard extends ConsumerWidget {
             const SizedBox(height: 10),
             SecondaryButton(
               label: '取消下载',
-              icon: Icons.close,
+              icon: Icons.close_rounded,
               danger: true,
               onPressed: () =>
                   ref.read(engineServiceProvider).cancelDownload(),
             ),
           ] else if (model.active)
-            PrimaryButton(
-              label: '使用中',
-              icon: Icons.check_circle_outline,
+            const PrimaryButton(
+              label: '正在使用该模型',
+              icon: Icons.check_circle_outline_rounded,
               onPressed: null,
             )
           else if (model.installed)
@@ -182,8 +210,8 @@ class _ModelCard extends ConsumerWidget {
               children: [
                 Expanded(
                   child: PrimaryButton(
-                    label: '设为使用中',
-                    icon: Icons.play_circle_outline,
+                    label: '切换为当前模型',
+                    icon: Icons.play_circle_outline_rounded,
                     onPressed: () => _setActive(context, ref),
                   ),
                 ),
@@ -191,7 +219,7 @@ class _ModelCard extends ConsumerWidget {
                 Expanded(
                   child: SecondaryButton(
                     label: '删除',
-                    icon: Icons.delete_outline,
+                    icon: Icons.delete_outline_rounded,
                     danger: true,
                     onPressed: () => _confirmDelete(context, ref),
                   ),
@@ -199,29 +227,13 @@ class _ModelCard extends ConsumerWidget {
               ],
             )
           else
-            Row(
-              children: [
-                Expanded(
-                  child: PrimaryButton(
-                    label: '下载',
-                    icon: Icons.download,
-                    onPressed: anyDownload
-                        ? null
-                        : () => ref
-                            .read(engineServiceProvider)
-                            .startDownload(model.id),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                const Expanded(
-                  child: SecondaryButton(
-                    label: '删除',
-                    icon: Icons.delete_outline,
-                    danger: true,
-                    onPressed: null,
-                  ),
-                ),
-              ],
+            PrimaryButton(
+              label: '下载并安装',
+              icon: Icons.download_rounded,
+              onPressed: anyDownload
+                  ? null
+                  : () =>
+                      ref.read(engineServiceProvider).startDownload(model.id),
             ),
         ],
       ),
@@ -241,19 +253,17 @@ class _ModelCard extends ConsumerWidget {
       builder: (ctx) => AlertDialog(
         title: const Text('删除模型', style: TextStyle(fontSize: 16)),
         content: Text(
-          '将删除「${model.label}」的本机文件（约 ${formatMb(model.extractedBytes)}）。'
-          '删除后需要重新下载才能离线朗读。',
+          '将删除「${model.label}」的本机文件（约 ${formatMb(model.extractedBytes)}）。删除后需重新下载。',
           style: const TextStyle(fontSize: 13.5, height: 1.5, color: Tokens.text),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            style: TextButton.styleFrom(foregroundColor: Tokens.textDim),
             child: const Text('取消'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            style: ElevatedButton.styleFrom(
+            style: FilledButton.styleFrom(
               backgroundColor: Tokens.danger,
               foregroundColor: Tokens.text,
             ),
@@ -280,7 +290,7 @@ class _MetaTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: Tokens.surfaceAlt,
         borderRadius: BorderRadius.circular(8),

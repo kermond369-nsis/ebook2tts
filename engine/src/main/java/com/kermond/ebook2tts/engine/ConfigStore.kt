@@ -140,6 +140,12 @@ object ConfigStore {
         kv().encode("online.baseUrl", url.trim())
     }
 
+    /** 在线最近错误摘要（与本地模型错误 status.lastError 完全隔离） */
+    fun onlineLastError(): String = kv().decodeString("online.lastError", "")!!
+    fun setOnlineLastError(msg: String) {
+        kv().encode("online.lastError", msg.trim())
+    }
+
     fun onlineVoice(): String = kv().decodeString("online.voice", OnlineSettings.DEFAULT_VOICE)!!
     fun setOnlineVoice(voice: String) {
         kv().encode("online.voice", voice.trim())
@@ -204,12 +210,12 @@ object ConfigStore {
         kv().encode("online.roleEnabled", v)
     }
 
-    /** 精标用文本模型（默认 `mimo-v2.5`；TTS 模型不用于文本调用） */
+    /** 精标用文本模型（默认 `mimo-v2.6-flash`；TTS 模型不用于文本调用） */
     fun onlineLlmModel(): String =
-        kv().decodeString("online.llmModel", OnlineSettings.DEFAULT_LLM_MODEL)!!
+        OnlineSettings.resolveLlmModel(kv().decodeString("online.llmModel", OnlineSettings.DEFAULT_LLM_MODEL)!!)
 
     fun setOnlineLlmModel(m: String) {
-        kv().encode("online.llmModel", m.trim().ifEmpty { OnlineSettings.DEFAULT_LLM_MODEL })
+        kv().encode("online.llmModel", OnlineSettings.resolveLlmModel(m))
     }
 
     /** 角色库（name → 档案）整体 JSON；空串 = 空库 */
@@ -261,6 +267,28 @@ object ConfigStore {
     /** 性能计数清零（诊断页用；丢块等计数复位） */
     fun resetPerfCounters() {
         kv().encode("status.dropUnit", 0)
+        kv().encode("perf.at", 0L)
+    }
+
+    /** 持久化最近一次朗读性能数据（供跨进程诊断页回显） */
+    fun recordLastPerf(firstChunkMs: Long, totalMs: Long, droppedChunks: Int, backend: String) {
+        kv().encode("perf.firstChunkMs", firstChunkMs)
+        kv().encode("perf.totalMs", totalMs)
+        kv().encode("perf.droppedChunks", droppedChunks)
+        kv().encode("perf.backend", backend)
+        kv().encode("perf.at", System.currentTimeMillis())
+    }
+
+    fun lastPerfMap(): Map<String, Any> {
+        val at = kv().decodeLong("perf.at", 0L)
+        if (at <= 0L) return emptyMap()
+        return mapOf(
+            "firstChunkMs" to kv().decodeLong("perf.firstChunkMs", -1L),
+            "totalMs" to kv().decodeLong("perf.totalMs", 0L),
+            "droppedChunks" to kv().decodeInt("perf.droppedChunks", 0),
+            "backend" to kv().decodeString("perf.backend", "")!!,
+            "perfAt" to at,
+        )
     }
 
     /** 允许使用数据流量（默认关：蜂窝下禁止在线与模型下载，见 core.NetPolicy） */

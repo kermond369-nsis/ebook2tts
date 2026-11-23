@@ -26,8 +26,18 @@ object OnlineSettings {
      */
     const val VOICEDESIGN_MODEL = "mimo-v2.5-tts-voicedesign"
 
-    /** 文本模型（角色精标用；官方模型列表实查：`mimo-v2.5`）。注意：这是文本调用，非 TTS */
-    const val DEFAULT_LLM_MODEL = "mimo-v2.5"
+    /** 文本模型（角色精标用；Token Plan 实测可用 `mimo-v2.6-flash`）。注意：这是文本调用，非 TTS */
+    const val DEFAULT_LLM_MODEL = "mimo-v2.6-flash"
+
+    /** 解析角色精标模型：空串或已下线旧默认值 `mimo-v2.5` 自动升至 [DEFAULT_LLM_MODEL] */
+    fun resolveLlmModel(stored: String): String {
+        val t = stored.trim()
+        return if (t.isEmpty() || t.equals("mimo-v2.5", ignoreCase = true)) {
+            DEFAULT_LLM_MODEL
+        } else {
+            t
+        }
+    }
 
     /** 该模型是否为定制音色模型（协议分支依据：含 voicedesign 即 user 消息走音色描述） */
     fun isVoiceDesignModel(model: String): Boolean = model.contains("voicedesign")

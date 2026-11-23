@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import android.util.Log
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 试听入口（IM-114 / IM-506b）。
@@ -18,6 +19,7 @@ import android.util.Log
 class PreviewService : Service() {
 
     private var player: PreviewPlayer? = null
+    private val activeGen = AtomicLong(0L)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -31,34 +33,46 @@ class PreviewService : Service() {
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
+                val gen = activeGen.incrementAndGet()
                 val p = player ?: PreviewPlayer(this).also { player = it }
                 val speed = ConfigStore.speedValue()
-                Log.i(TAG, "PREVIEW|start|voice=${voice ?: "跟随旁白"}|chars=${text.length}|speed=$speed")
+                Log.i(TAG, "PREVIEW|start|gen=$gen|voice=${voice ?: "跟随旁白"}|chars=${text.length}|speed=$speed")
+                ConfigStore.notifyStatus(this, "PREVIEW_START|${voice.orEmpty()}")
                 p.preview(text, voice, speed, object : PreviewPlayer.Listener {
                     override fun onStart(sampleRate: Int) {
+                        if (activeGen.get() != gen) return
                         Log.i(TAG, "PREVIEW|playing|sr=$sampleRate")
+                        ConfigStore.notifyStatus(this@PreviewService, "PREVIEW_START|${voice.orEmpty()}")
                     }
 
                     override fun onProgress(percent: Int) {
+                        if (activeGen.get() != gen) return
                         // 逐次打印太吵，仅在整十进度留痕
                         if (percent % 25 == 0) Log.i(TAG, "PREVIEW|progress=$percent")
                     }
 
                     override fun onDone() {
-                        Log.i(TAG, "PREVIEW|done")
-                        stopSelf()
+                        if (activeGen.get() != gen) return
+                        Log.i(TAG, "PREVIEW|done|gen=$gen")
+                        ConfigStore.notifyStatus(this@PreviewService, "PREVIEW_DONE")
+                        stopSelf(startId)
                     }
 
                     override fun onError(code: Int, message: String) {
-                        Log.w(TAG, "PREVIEW|error|code=$code|msg=$message")
-                        stopSelf()
+                        if (activeGen.get() != gen) return
+                        val safe = ErrorSanitizer.sanitize(message, 120)
+                        Log.w(TAG, "PREVIEW|error|code=$code|msg=$safe")
+                        ConfigStore.notifyStatus(this@PreviewService, "PREVIEW_ERROR|$safe")
+                        stopSelf(startId)
                     }
                 })
             }
 
             ACTION_STOP -> {
+                activeGen.incrementAndGet()
                 player?.stop()
                 Log.i(TAG, "PREVIEW|stopped_by_user")
+                ConfigStore.notifyStatus(this, "PREVIEW_DONE")
                 stopSelf()
             }
         }

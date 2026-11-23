@@ -8,13 +8,19 @@ plugins {
 
 android {
     val requestedPlatforms = providers.gradleProperty("target-platform").orNull.orEmpty()
-    val arm64Only = providers.gradleProperty("arm64Only")
-        .map { it.equals("true", ignoreCase = true) }
-        .getOrElse(false) ||
-        (requestedPlatforms.isNotBlank() && !requestedPlatforms.contains("x64", ignoreCase = true)) ||
+    val explicitlyUniversal = requestedPlatforms.split(",")
+        .any { it.trim().equals("android-arm", ignoreCase = true) } ||
+        (requestedPlatforms.contains("arm64", ignoreCase = true) && requestedPlatforms.contains("x64", ignoreCase = true))
+    val abiModeRaw = providers.gradleProperty("abiMode").orNull.orEmpty().trim().lowercase()
+    val abiMode = when {
+        abiModeRaw in setOf("arm64", "universal", "debug") -> abiModeRaw
+        explicitlyUniversal -> "universal"
+        requestedPlatforms.isNotBlank() && !requestedPlatforms.contains("x64", ignoreCase = true) -> "arm64"
         gradle.startParameter.taskNames.any {
             it.contains("Release", ignoreCase = true) || it.contains("Profile", ignoreCase = true)
-        }
+        } -> "arm64"
+        else -> "debug"
+    }
 
     // P7：发布签名（存在 key.properties 时用发布密钥；否则回退调试密钥，保证他人 clone 后可构建）
     val keyProps = Properties().apply {
@@ -48,32 +54,25 @@ android {
         versionName = flutter.versionName
     }
 
+    fun applyAbiFilters(filter: com.android.build.api.dsl.Ndk) {
+        filter.abiFilters.clear()
+        when (abiMode) {
+            "arm64" -> filter.abiFilters.add("arm64-v8a")
+            "universal" -> filter.abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
+            else -> filter.abiFilters.addAll(listOf("x86_64", "arm64-v8a"))
+        }
+    }
+
     buildTypes {
         debug {
-            // 规格 §1：调试包用于 MuMu(x86_64) 与真机(arm64) 验证 ⇒ 默认保留 x86_64 + arm64-v8a；
-            // 指定仅 arm64 构建时收敛为单 ABI（注意：必须 clear，否则 Flutter 注入的 ABI 列表会残留）
-            ndk {
-                abiFilters.clear()
-                if (arm64Only) {
-                    abiFilters.add("arm64-v8a")
-                } else {
-                    abiFilters.addAll(listOf("x86_64", "arm64-v8a"))
-                }
-            }
+            // 默认保留 x86_64 + arm64-v8a 供本地/CI 调试；传 -PabiMode=arm64/universal 时按需收敛
+            ndk { applyAbiFilters(this) }
         }
         matching { it.name == "profile" }.configureEach {
-            // 真机 AOT 测试包仅打 arm64-v8a（剔除 x86_64 与 Vulkan 验证层）
-            ndk {
-                abiFilters.clear()
-                abiFilters.add("arm64-v8a")
-            }
+            ndk { applyAbiFilters(this) }
         }
         release {
-            // 正式包 ABI（P7 / RQ-512 / DQ-2 修订）：仅 arm64-v8a（放弃 32 位 armeabi-v7a）
-            ndk {
-                abiFilters.clear()
-                abiFilters.add("arm64-v8a")
-            }
+            ndk { applyAbiFilters(this) }
             // 正式签名由发布线配置；当前阶段沿用调试签名，保证 `flutter run --release` 可用
             // P7 复核整改（agy 2026-09-17）：release 缺凭据的**失败判定放在任务执行期**（见文件末尾
             // 的 assembleRelease 守卫），此处只在有凭据时切到发布签名。
@@ -86,11 +85,12 @@ android {
         jniLibs {
             // 压缩 .so 并放行 AGP/NDK 剥离 DWARF 调试符号，消除 377MB libflutter.so / 237MB libVkLayer 膨胀
             useLegacyPackaging = true
-            // ABI 收敛（P7 / RQ-512）：显式排除 32 位 armeabi-v7a 与 x86（aar 内含 4 种 ABI）；
-            // 当仅构建 arm64 时同步剔除 x86_64（单靠 ndk.abiFilters 无法剔除本地 AAR 带入的库）。
-            excludes += listOf("lib/armeabi-v7a/**", "lib/x86/**")
-            if (arm64Only) {
-                excludes += "lib/x86_64/**"
+            // 始终排除 32 位 x86；按 abiMode 精准裁剪 armeabi-v7a / x86_64（对抗本地 AAR 带入多余 ABI）
+            excludes += "lib/x86/**"
+            when (abiMode) {
+                "arm64" -> excludes += listOf("lib/armeabi-v7a/**", "lib/x86_64/**")
+                "debug" -> excludes += "lib/armeabi-v7a/**"
+                // "universal": 保留 arm64-v8a / armeabi-v7a / x86_64
             }
         }
     }

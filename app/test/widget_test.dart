@@ -1,9 +1,4 @@
-// P3 界面烟雾测试：导航壳可切换，六个页面均有真实内容（无空白页）。
-//
-// 说明（2026-09-15 修订）：
-// - 本测试在 P4 批次前即为**红**（基线上同样失败，非本批次引入）：原断言在 50ms 内取状态，
-//   且设置页是懒加载列表——屏外条目**未被构建**，直接 `find.text` 必然找不到；
-// - 现修订为：①给状态/事件流留出落地时间；②需要屏外内容时先滚动到可见再断言。
+// 重构后 UI 烟雾测试：验证「纯在线 / 纯本地 / 混合」三模式下的严格界面隔离与安全默认值。
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,11 +8,42 @@ import 'package:ebook2tts/engine/mock_engine_service.dart';
 import 'package:ebook2tts/main.dart';
 import 'package:ebook2tts/state/providers.dart';
 
-/// 宿主侧桥接通道（与 `SystemBridge` 一致）。
 const MethodChannel _systemChannel = MethodChannel('com.kermond.ebook2tts/system');
 
+void _mockSystem({required String mode, String onlineLastError = ''}) {
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(_systemChannel, (MethodCall call) async {
+    switch (call.method) {
+      case 'getRouteMode':
+        return <String, Object>{'mode': mode, 'chosen': true};
+      case 'setRouteMode':
+        final args = call.arguments as Map<Object?, Object?>?;
+        return (args?['mode'] as String?) ?? mode;
+      case 'getOnlineProviderConfig':
+        return <String, Object>{
+          'providerKind': 'mimo',
+          'baseUrl': '',
+          'model': '',
+          'voice': '',
+          'responseFormat': 'pcm',
+          'sampleRate': 24000,
+          'customHeaders': '',
+          'customBodyTemplate': '',
+        };
+      case 'getRuntimeMeta':
+        return <String, Object>{
+          'onlineLastError': onlineLastError,
+          'localLastError': mode == 'only_online' ? '模型未安装' : '',
+          'lastPerf': <String, Object>{},
+          'providerKind': 'mimo',
+        };
+      default:
+        return null;
+    }
+  });
+}
+
 Future<void> _pumpApp(WidgetTester tester) async {
-  // IM-511：Mock 已改为内存态，不再需要 shared_preferences
   final engine = await MockEngineService.create();
   await tester.pumpWidget(
     ProviderScope(
@@ -25,88 +51,90 @@ Future<void> _pumpApp(WidgetTester tester) async {
       child: const Ebook2TtsApp(),
     ),
   );
-  // 首启闸门（RQ-513）经平台通道读取路由状态；widget 测试必须给出确定应答，
-  // 否则通道 Future 永不完成 ⇒ 停在启动等待页、主壳（含「书声本地」）不渲染
-  // —— 这正是本测试自 P4 之后长期为红的真正原因（2026-09-21 定位并修复）。
-  await tester.pump();                                   // 让通道应答落地
-  // 首屏状态来自异步 status()，给足时间再断言
+  await tester.pump();
   await tester.pump(const Duration(milliseconds: 400));
-  // 显式守卫（复核建议）：首启闸门未解开时给出秒级语义化失败，而非等到页面文字查找超时
   expect(find.byType(CircularProgressIndicator), findsNothing,
       reason: '首启闸门未解开：通道应答缺失或 status() 未落地');
 }
 
 void main() {
-  setUp(() {
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(_systemChannel, (MethodCall call) async {
-      switch (call.method) {
-        case 'getRouteMode':
-          // 已选择过朗读模式 ⇒ 直接进主壳（本组用例的前提）
-          return <String, Object>{'mode': 'prefer_online', 'chosen': true};
-        case 'setRouteMode':
-          final args = call.arguments as Map<Object?, Object?>?;
-          return (args?['mode'] as String?) ?? 'prefer_online';
-        default:
-          return null;
-      }
-    });
-  });
-
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_systemChannel, null);
   });
 
-  testWidgets('导航壳可切换，六个页面均非空白', (WidgetTester tester) async {
+  testWidgets('纯在线模式：仅显示首页/在线/朗读/设置，隐藏本地模型与音色，且不被本地无模型误报错误',
+      (WidgetTester tester) async {
+    _mockSystem(mode: 'only_online');
     await _pumpApp(tester);
 
-    // 引导页内容（页面为滚动容器，主按钮在首屏之下 ⇒ 断言用 skipOffstage: false，
-    // 判据是「文案已在组件树中渲染」，而不是「恰好落在可视区」）
-    expect(find.text('书声本地'), findsWidgets);
-    expect(find.text('去下载模型', skipOffstage: false), findsOneWidget);
-    expect(find.text('当前状态', skipOffstage: false), findsWidgets);
+    expect(find.text('书声'), findsWidgets);
+    expect(find.text('纯在线'), findsWidgets);
+    expect(find.text('在线'), findsOneWidget);
+    expect(find.text('朗读'), findsOneWidget);
+    expect(find.text('设置'), findsOneWidget);
+    expect(find.text('模型'), findsNothing);
+    expect(find.text('音色'), findsNothing);
 
-    // 逐页切换：每页都应有可读的中文标题或内容
-    for (final entry in <String, String>{
-      '模型': '下载镜像（可选）',
-      '音色': '中文音色（优先）',
-      '朗读': '要朗读的文本',
-      '设置': '在线朗读',
-      '诊断': '引擎状态',
-      '引导': '当前状态',
-    }.entries) {
-      await tester.tap(find.text(entry.key).last);
-      await tester.pump(const Duration(milliseconds: 200));
-      expect(find.text(entry.value, skipOffstage: false), findsWidgets,
-          reason: '页面「${entry.key}」应渲染内容：${entry.value}');
-    }
-  });
-
-  testWidgets('默认值：在线朗读关、数据流量关、按量计费', (WidgetTester tester) async {
-    await _pumpApp(tester);
-
-    await tester.tap(find.text('设置').last);
-    await tester.pump(const Duration(milliseconds: 300));
-
-    // 首屏可见区：在线朗读默认关（含单独同意提示），下方渲染多引擎卡片
-    expect(
-        find.text('已关闭：朗读只在本机完成。开启前会先请你单独确认外发告知。',
-            skipOffstage: false),
-        findsOneWidget);
-    expect(find.text('在线语音引擎（通用转接）', skipOffstage: false), findsOneWidget);
-
-    // 屏外（多引擎卡片之下）：按量计费默认选中 + 网络策略区（懒加载列表 → 先滚动再断言）
-    const billingTitle = '按量计费 API Key（推荐）';
+    await tester.tap(find.text('在线').last);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('启用在线朗读', skipOffstage: false), findsOneWidget);
+    expect(find.text('在线语音引擎', skipOffstage: false), findsOneWidget);
+    const billing = '按量计费 API Key（推荐）';
     await tester.scrollUntilVisible(
-      find.text(billingTitle),
+      find.text(billing),
       300,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text(billingTitle), findsOneWidget);
+    expect(find.text(billing), findsOneWidget);
+    expect(find.textContaining('平台方拒绝了当前密钥'), findsNothing);
+  });
 
-    const wifiOff = '已关闭（默认）：只在无线网络下下载模型与联网朗读。';
+  testWidgets('纯本地模式：仅显示本地模型与音色，彻底隐藏在线配置', (WidgetTester tester) async {
+    _mockSystem(mode: 'only_local');
+    await _pumpApp(tester);
+
+    expect(find.text('纯本地'), findsWidgets);
+    expect(find.text('模型'), findsOneWidget);
+    expect(find.text('音色'), findsOneWidget);
+    expect(find.text('在线'), findsNothing);
+
+    await tester.tap(find.text('模型').last);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('端侧语音模型', skipOffstage: false), findsOneWidget);
+
+    await tester.tap(find.text('音色').last);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('当前旁白', skipOffstage: false), findsOneWidget);
+
+    await tester.tap(find.text('设置').last);
+    await tester.pump(const Duration(milliseconds: 200));
+    const mobileToggle = '允许使用移动数据流量';
+    await tester.scrollUntilVisible(
+      find.text(mobileToggle),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text(mobileToggle), findsOneWidget);
+    expect(find.text('启用在线朗读', skipOffstage: false), findsNothing);
+  });
+
+  testWidgets('混合模式：同时提供在线与本地入口，且移动数据默认关闭', (WidgetTester tester) async {
+    _mockSystem(mode: 'prefer_online');
+    await _pumpApp(tester);
+
+    expect(find.text('混合'), findsWidgets);
+    expect(find.text('在线'), findsOneWidget);
+    expect(find.text('本地'), findsOneWidget);
+
+    await tester.tap(find.text('本地').last);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('模型管理'), findsOneWidget);
+    expect(find.text('音色库'), findsOneWidget);
+
+    await tester.tap(find.text('设置').last);
+    await tester.pump(const Duration(milliseconds: 200));
+    const wifiOff = '已关闭（默认）：仅在无线网络（Wi-Fi）下执行在线合成与模型下载。';
     await tester.scrollUntilVisible(
       find.text(wifiOff),
       300,

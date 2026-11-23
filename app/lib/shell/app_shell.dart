@@ -1,138 +1,259 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../pages/diagnostics_page.dart';
-import '../pages/guide_page.dart';
-import '../pages/models_page.dart';
-import '../pages/sample_page.dart';
-import '../pages/settings_page.dart';
-import '../pages/voices_page.dart';
+import '../engine/engine_service.dart';
+import '../platform/system_bridge.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/common.dart';
+import 'diagnostics_page.dart';
+import 'guide_page.dart';
+import 'local_hub_page.dart';
+import 'models_page.dart';
+import 'online_config_page.dart';
+import 'sample_page.dart';
+import 'settings_page.dart';
+import 'voices_page.dart';
 
-/// 应用壳：底部导航 + 六个页面（规格 §3，IM-301~307）。
-///
-/// 六个页面全部常驻（不重建、不空白）；页面内一律中文文案。
+class _NavTab {
+  const _NavTab({
+    required this.title,
+    required this.destination,
+    required this.icon,
+    required this.selectedIcon,
+    required this.page,
+  });
+
+  final String title;
+  final String destination;
+  final IconData icon;
+  final IconData selectedIcon;
+  final Widget page;
+}
+
+/// 主导航壳：严格按当前工作模式（纯在线 / 纯本地 / 混合）动态筛选页面与底部导航。
 class AppShell extends ConsumerWidget {
   const AppShell({super.key});
 
-  static const List<String> titles = <String>[
-    '引导',
-    '模型管理',
-    '音色库',
-    '示例朗读',
-    '设置',
-    '诊断',
-  ];
+  static List<_NavTab> _tabsFor(AppWorkMode mode) => switch (mode) {
+        AppWorkMode.onlineOnly => const [
+            _NavTab(
+              title: '首页概览',
+              destination: '首页',
+              icon: Icons.home_outlined,
+              selectedIcon: Icons.home_rounded,
+              page: GuidePage(),
+            ),
+            _NavTab(
+              title: '在线引擎',
+              destination: '在线',
+              icon: Icons.cloud_outlined,
+              selectedIcon: Icons.cloud_rounded,
+              page: OnlineConfigPage(),
+            ),
+            _NavTab(
+              title: '示例朗读',
+              destination: '朗读',
+              icon: Icons.graphic_eq_outlined,
+              selectedIcon: Icons.graphic_eq_rounded,
+              page: SamplePage(),
+            ),
+            _NavTab(
+              title: '设置',
+              destination: '设置',
+              icon: Icons.tune_outlined,
+              selectedIcon: Icons.tune_rounded,
+              page: SettingsPage(),
+            ),
+          ],
+        AppWorkMode.localOnly => const [
+            _NavTab(
+              title: '首页概览',
+              destination: '首页',
+              icon: Icons.home_outlined,
+              selectedIcon: Icons.home_rounded,
+              page: GuidePage(),
+            ),
+            _NavTab(
+              title: '本地模型',
+              destination: '模型',
+              icon: Icons.download_for_offline_outlined,
+              selectedIcon: Icons.download_for_offline_rounded,
+              page: ModelsPage(),
+            ),
+            _NavTab(
+              title: '本地音色',
+              destination: '音色',
+              icon: Icons.record_voice_over_outlined,
+              selectedIcon: Icons.record_voice_over_rounded,
+              page: VoicesPage(),
+            ),
+            _NavTab(
+              title: '示例朗读',
+              destination: '朗读',
+              icon: Icons.graphic_eq_outlined,
+              selectedIcon: Icons.graphic_eq_rounded,
+              page: SamplePage(),
+            ),
+            _NavTab(
+              title: '设置',
+              destination: '设置',
+              icon: Icons.tune_outlined,
+              selectedIcon: Icons.tune_rounded,
+              page: SettingsPage(),
+            ),
+          ],
+        AppWorkMode.hybrid => const [
+            _NavTab(
+              title: '首页概览',
+              destination: '首页',
+              icon: Icons.home_outlined,
+              selectedIcon: Icons.home_rounded,
+              page: GuidePage(),
+            ),
+            _NavTab(
+              title: '在线引擎',
+              destination: '在线',
+              icon: Icons.cloud_outlined,
+              selectedIcon: Icons.cloud_rounded,
+              page: OnlineConfigPage(),
+            ),
+            _NavTab(
+              title: '本地引擎',
+              destination: '本地',
+              icon: Icons.storage_outlined,
+              selectedIcon: Icons.storage_rounded,
+              page: LocalHubPage(),
+            ),
+            _NavTab(
+              title: '示例朗读',
+              destination: '朗读',
+              icon: Icons.graphic_eq_outlined,
+              selectedIcon: Icons.graphic_eq_rounded,
+              page: SamplePage(),
+            ),
+            _NavTab(
+              title: '设置',
+              destination: '设置',
+              icon: Icons.tune_outlined,
+              selectedIcon: Icons.tune_rounded,
+              page: SettingsPage(),
+            ),
+          ],
+      };
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final index = ref.watch(navIndexProvider);
+    final route = ref.watch(routeModeProvider).value ??
+        const RouteModeState(mode: 'prefer_online', chosen: true);
+    final workMode = route.workMode;
+    final tabs = _tabsFor(workMode);
+    final rawIndex = ref.watch(navIndexProvider);
+    final index = rawIndex.clamp(0, tabs.length - 1);
+
     final status = ref.watch(statusProvider).value;
-    final models = ref.watch(modelsProvider).value;
-    // 徽标要区分两种"非就绪"：**没装模型**（需要引导下载）与**已装但引擎尚未载入**
-    // （引擎在首次朗读时才载入模型，属正常中间态，不该显示成红色告警）。
-    final modelInstalled = models?.any((m) => m.installed) ?? false;
-    final ready = status?.state.name == 'ready';
-    final badgeLabel = status == null
-        ? '正在读取'
-        : (ready || !modelInstalled)
-            ? engineStateLabel(status.state)
-            : '待朗读时启动';
-    final badgeColor = status == null
-        ? Tokens.textDim
-        : (ready
-            ? Tokens.accent
-            : (modelInstalled ? Tokens.textDim : Tokens.danger));
+    final models = ref.watch(modelsProvider).value ?? const <ModelInfo>[];
+    final localInstalled = models.any((m) => m.installed);
+
+    final (String healthLabel, Color healthColor) = switch (workMode) {
+      AppWorkMode.onlineOnly => switch (status?.online) {
+          OnlineState.ready => ('在线就绪', Tokens.accent),
+          OnlineState.error => ('在线异常', Tokens.danger),
+          OnlineState.noKey => ('待填密钥', Tokens.hybrid),
+          OnlineState.off => ('在线未开', Tokens.textDim),
+          null => ('读取中', Tokens.textDim),
+        },
+      AppWorkMode.localOnly => switch (status?.state) {
+          EngineState.ready => ('本地就绪', Tokens.accent),
+          EngineState.loading => ('模型载入中', Tokens.cloud),
+          EngineState.reloading => ('重载中', Tokens.cloud),
+          EngineState.error => ('本地异常', Tokens.danger),
+          EngineState.noModel =>
+            localInstalled ? ('待朗读启动', Tokens.textDim) : ('未装模型', Tokens.danger),
+          null => ('读取中', Tokens.textDim),
+        },
+      AppWorkMode.hybrid => () {
+          final onlineReady = status?.online == OnlineState.ready;
+          final localReady = status?.state == EngineState.ready || localInstalled;
+          if (onlineReady && localReady) {
+            return ('双引擎就绪', Tokens.accent);
+          }
+          if (onlineReady) return ('在线就绪', Tokens.cloud);
+          if (status?.state == EngineState.ready) return ('本地就绪', Tokens.accent);
+          if (localInstalled) return ('本地待命', Tokens.textDim);
+          if (status?.online == OnlineState.error) {
+            return ('在线异常', Tokens.danger);
+          }
+          return ('待配置', Tokens.hybrid);
+        }(),
+    };
+
+    final modeBadge = switch (workMode) {
+      AppWorkMode.onlineOnly => ('纯在线', Tokens.cloud),
+      AppWorkMode.localOnly => ('纯本地', Tokens.accent),
+      AppWorkMode.hybrid => ('混合', Tokens.hybrid),
+    };
 
     return Scaffold(
       appBar: AppBar(
         title: Row(
           children: [
-            const Text('书声本地'),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                ' · ${titles[index]}',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w400,
-                  color: Tokens.textDim,
-                ),
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: Tokens.accent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.auto_stories_rounded,
+                size: 17,
+                color: Tokens.onAccent,
               ),
             ),
+            const SizedBox(width: 9),
+            const Text('书声'),
+            const SizedBox(width: 8),
+            StatusChip(label: modeBadge.$1, color: modeBadge.$2),
           ],
         ),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: Center(
-              child: StatusChip(
-                label: badgeLabel,
-                color: badgeColor,
-              ),
-            ),
+          Center(child: StatusChip(label: healthLabel, color: healthColor)),
+          IconButton(
+            tooltip: '运行诊断与日志',
+            icon: const Icon(Icons.monitor_heart_outlined, size: 21),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => Scaffold(
+                    appBar: AppBar(title: const Text('诊断与日志')),
+                    body: const DiagnosticsPage(),
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),
       body: IndexedStack(
         index: index,
-        children: const <Widget>[
-          GuidePage(),
-          ModelsPage(),
-          VoicesPage(),
-          SamplePage(),
-          SettingsPage(),
-          DiagnosticsPage(),
-        ],
+        children: [for (final t in tabs) t.page],
       ),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
-          color: Tokens.surface,
-          border: Border(top: BorderSide(color: Tokens.divider)),
+          border: Border(top: BorderSide(color: Tokens.divider, width: 1)),
         ),
-        child: BottomNavigationBar(
-          currentIndex: index,
-          onTap: (i) => ref.read(navIndexProvider.notifier).go(i),
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: Tokens.surface,
-          selectedItemColor: Tokens.accent,
-          unselectedItemColor: Tokens.textDim,
-          selectedFontSize: 10.5,
-          unselectedFontSize: 10.5,
-          iconSize: 22,
-          items: const <BottomNavigationBarItem>[
-            BottomNavigationBarItem(
-              icon: Icon(Icons.explore_outlined),
-              activeIcon: Icon(Icons.explore),
-              label: '引导',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.download_for_offline_outlined),
-              activeIcon: Icon(Icons.download_for_offline),
-              label: '模型',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.record_voice_over_outlined),
-              activeIcon: Icon(Icons.record_voice_over),
-              label: '音色',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.graphic_eq),
-              activeIcon: Icon(Icons.multitrack_audio),
-              label: '朗读',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.tune_outlined),
-              activeIcon: Icon(Icons.tune),
-              label: '设置',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.monitor_heart_outlined),
-              activeIcon: Icon(Icons.monitor_heart),
-              label: '诊断',
-            ),
+        child: NavigationBar(
+          selectedIndex: index,
+          onDestinationSelected: (i) =>
+              ref.read(navIndexProvider.notifier).go(i),
+          destinations: [
+            for (final t in tabs)
+              NavigationDestination(
+                icon: Icon(t.icon),
+                selectedIcon: Icon(t.selectedIcon),
+                label: t.destination,
+              ),
           ],
         ),
       ),

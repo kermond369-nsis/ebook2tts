@@ -294,6 +294,20 @@ class OnlineBackendTest {
         assertTrue(!masked.contains("tp-abcdef99"))
     }
 
+    @Test
+    fun validateKey_sanitizesEchoedSecretInHttpError() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(401)
+                .setBody("Unauthorized for Bearer sk-secret9999"),
+        )
+        val err = backend.validateKey(request().copy(apiKey = "sk-secret9999"))
+        assertNotNull(err)
+        assertTrue(err!!.contains("HTTP 401"))
+        assertTrue(err.contains("Bearer ***"))
+        assertTrue(!err.contains("sk-secret9999"))
+    }
+
     private fun buildWav16k(pcm: ByteArray): ByteArray {
         val out = ByteArrayOutputStream()
         fun u16(v: Int) {

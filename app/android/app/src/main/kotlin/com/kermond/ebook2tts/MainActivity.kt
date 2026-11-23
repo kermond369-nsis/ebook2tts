@@ -62,10 +62,28 @@ class MainActivity : FlutterActivity() {
                     "setRouteMode" -> {
                         val id = call.argument<String>("mode").orEmpty()
                         val mode = com.kermond.ebook2tts.core.RouteMode.parse(id)
-                        com.kermond.ebook2tts.engine.ConfigStore.setRouteMode(mode)
-                        com.kermond.ebook2tts.engine.ConfigStore.setRouteChosen(true)
+                        ConfigStore.setRouteMode(mode)
+                        ConfigStore.setRouteChosen(true)
+                        if (mode == com.kermond.ebook2tts.core.RouteMode.ONLY_LOCAL) {
+                            ConfigStore.setOnlineLastError("")
+                        } else {
+                            // 离开纯本地时若此前仅是本地无模型，不应污染状态展示
+                            if (ConfigStore.statusLastError() == "模型未安装" && !mode.allowsLocal) {
+                                ConfigStore.setStatusLastError("")
+                            }
+                        }
+                        ConfigStore.notifyReload(this, "route_mode")
+                        ConfigStore.notifyStatus(this, "ROUTE_MODE")
                         result.success(mode.id)
                     }
+                    "getRuntimeMeta" -> result.success(
+                        mapOf(
+                            "onlineLastError" to ConfigStore.onlineLastError(),
+                            "localLastError" to ConfigStore.statusLastError(),
+                            "lastPerf" to ConfigStore.lastPerfMap(),
+                            "providerKind" to ConfigStore.onlineProviderKind().id,
+                        )
+                    )
                     "getOnlineProviderConfig" -> {
                         val kind = ConfigStore.onlineProviderKind()
                         result.success(
@@ -91,7 +109,9 @@ class MainActivity : FlutterActivity() {
                         call.argument<Int>("sampleRate")?.let { ConfigStore.setOnlineSampleRate(it) }
                         call.argument<String>("customHeaders")?.let { ConfigStore.setOnlineCustomHeaders(it) }
                         call.argument<String>("customBodyTemplate")?.let { ConfigStore.setOnlineCustomBodyTemplate(it) }
+                        ConfigStore.setOnlineLastError("")
                         ConfigStore.notifyReload(this, "system_provider_config")
+                        ConfigStore.notifyStatus(this, "PROVIDER_CONFIG")
                         result.success("ok")
                     }
                     "validateOnlineProvider" -> {
@@ -122,6 +142,8 @@ class MainActivity : FlutterActivity() {
                         probeExecutor.execute {
                             val err = runCatching { OnlineBackendHolder.get().validate(req) }
                                 .getOrElse { it.message?.take(200) ?: "校验异常" }
+                            ConfigStore.setOnlineLastError(err.orEmpty())
+                            ConfigStore.notifyStatus(this, if (err == null) "ONLINE_OK" else "ONLINE_ERR")
                             runOnUiThread { result.success(err) }
                         }
                     }

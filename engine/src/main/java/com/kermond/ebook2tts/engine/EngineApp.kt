@@ -40,7 +40,11 @@ class EngineApp : Application() {
             while (true) {
                 try {
                     Thread.sleep(ROLE_TICK_MS)
-                    if (!ConfigStore.onlineEnabled() || !ConfigStore.roleVoiceEnabled()) continue
+                    if (!ConfigStore.routeMode().allowsOnline ||
+                        !ConfigStore.onlineEnabled() ||
+                        ConfigStore.onlineProviderKind() != com.kermond.ebook2tts.core.TtsProviderKind.MIMO ||
+                        !ConfigStore.roleVoiceEnabled()
+                    ) continue
                     val r = OnlineRoleRefiner(this).refinePending()
                     if (r.refined > 0) {
                         Log.i(TAG, "role refine tick: refined=${r.refined}")

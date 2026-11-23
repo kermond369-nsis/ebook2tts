@@ -58,8 +58,14 @@ object ModelPresence {
 
     fun isActiveModelInstalled(context: Context): Boolean {
         val spec = ModelCatalog.byId(ConfigStore.modelId())
-        val model = File(File(context.filesDir, "models/${spec.id}"), spec.files.modelName)
-        return model.exists() && model.length() > 0L
+        val dir = File(context.filesDir, "models/${spec.id}")
+        val model = File(dir, spec.files.modelName)
+        if (!model.exists() || model.length() <= 0L) return false
+        if (spec.files.vocoder.isNotEmpty()) {
+            val voc = File(dir, spec.files.vocoder)
+            if (!voc.exists() || voc.length() <= 0L) return false
+        }
+        return true
     }
 
     fun isOnlineConfigured(): Boolean = OnlineSelector.isOnlineConfigured(

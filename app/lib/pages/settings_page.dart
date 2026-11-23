@@ -1,23 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../content/legal_texts.dart';
-import '../engine/engine_service.dart';
 import '../platform/system_bridge.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/common.dart';
-import '../widgets/online_consent_dialog.dart';
-import '../widgets/token_plan_dialog.dart';
+import 'diagnostics_page.dart';
 import 'disclaimer_page.dart';
 import 'mode_setup_page.dart';
 
-/// 设置页（IM-305）。
-///
-
-/// ① 语速 ② 在线朗读总开关（默认关）③ 密钥类型（按量计费 / Token Plan）
-/// ④ API Key 输入 ⑤ Base URL 展示（自动跟随，可高级覆盖）⑥ 允许使用数据流量（默认关）
-/// ⑦ 自定义下载镜像 ⑧ 系统 TTS 设置入口 / 完整免责声明入口。
+/// 全局设置页：精简清爽，不再堆砌在线鉴权/API 参数（已移至「在线」专属标签页）。
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
 
@@ -26,94 +18,14 @@ class SettingsPage extends ConsumerStatefulWidget {
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
-
-  /// 模式文案（RQ-513 设置页回显）
-  static String _modeLabel(String id) => switch (id) {
-        'only_online' => '仅在线',
-        'only_local' => '仅本地',
-        'prefer_local' => '本地优先',
-        _ => '在线优先',
-      };
-
-  Future<void> _openModeSetup(BuildContext ctx) async {
-    await Navigator.of(ctx).push(
-      MaterialPageRoute<void>(
-        // 真机验证暴露：保存成功后必须**弹栈返回**（此前 onDone 为空实现 ⇒ 页面卡在模式页无法返回）
-        builder: (routeCtx) => ModeSetupPage(
-          onDone: () async {
-            if (routeCtx.mounted) Navigator.of(routeCtx).pop();
-          },
-        ),
-      ),
-    );
-    // 返回后重建 ⇒ FutureBuilder 重新读取（无需额外状态）
-  }
-
-  final TextEditingController _apiKey = TextEditingController();
-  final TextEditingController _baseUrlOverride = TextEditingController();
-  final TextEditingController _mirror = TextEditingController();
-  final TextEditingController _providerBaseUrl = TextEditingController();
-  final TextEditingController _providerModel = TextEditingController();
-  final TextEditingController _providerVoice = TextEditingController();
-  final TextEditingController _providerHeaders = TextEditingController();
-  final TextEditingController _providerBody = TextEditingController();
-
-  double _speed = 1.0;
-  bool _speedSynced = false;
-  bool _mirrorSynced = false;
-  bool _advancedBase = false;
-  String? _keyError;
-  bool _validating = false;
-
-  String _providerKind = 'mimo';
-  String _responseFormat = 'pcm';
-  int _providerSampleRate = 24000;
-  bool _providerLoaded = false;
-  bool _savingProvider = false;
-  bool _probingProvider = false;
-  String? _providerError;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadProviderConfig();
-  }
-
-  Future<void> _loadProviderConfig() async {
-    final cfg = await SystemBridge.getOnlineProviderConfig();
-    if (!mounted) return;
-    setState(() {
-      _providerLoaded = true;
-      if (cfg != null) {
-        _providerKind = cfg.providerKind;
-        _responseFormat = cfg.responseFormat;
-        _providerSampleRate = cfg.sampleRate;
-        _providerBaseUrl.text = cfg.baseUrl;
-        _providerModel.text = cfg.model;
-        _providerVoice.text = cfg.voice;
-        _providerHeaders.text = cfg.customHeaders;
-        _providerBody.text = cfg.customBodyTemplate;
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _apiKey.dispose();
-    _baseUrlOverride.dispose();
-    _mirror.dispose();
-    _providerBaseUrl.dispose();
-    _providerModel.dispose();
-    _providerVoice.dispose();
-    _providerHeaders.dispose();
-    _providerBody.dispose();
-    super.dispose();
-  }
+  double? _speedDraft;
 
   @override
   Widget build(BuildContext context) {
     final config = ref.watch(configProvider).value;
-    final status = ref.watch(statusProvider).value;
+    final route = ref.watch(routeModeProvider).value ??
+        const RouteModeState(mode: 'prefer_online', chosen: true);
+    final workMode = route.workMode;
 
     if (config == null) {
       return const PageBody(
@@ -121,7 +33,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           SectionCard(
             child: Center(
               child: Padding(
-                padding: EdgeInsets.all(18),
+                padding: EdgeInsets.all(24),
                 child: CircularProgressIndicator(),
               ),
             ),
@@ -130,432 +42,106 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       );
     }
 
-    if (!_speedSynced) {
-      _speed = config.speed;
-      _speedSynced = true;
-    }
-    if (!_mirrorSynced) {
-      _mirror.text = config.customMirror;
-      _mirrorSynced = true;
-    }
-
-    final isPlan = config.keyKind == 'plan';
-    final isMimo = _providerKind == 'mimo';
-    final canEditKey = !isMimo || !isPlan || config.tokenPlanAccepted;
-    final onlineError = _keyError ??
-        (status?.online == OnlineState.error ? '平台方拒绝了当前密钥，请检查后重试。' : null);
+    final speed = _speedDraft ?? config.speed;
 
     return PageBody(
       children: [
-        // ⓪ 朗读模式（RQ-513）：回显当前模式并可更改
+        // ① 工作模式
         SectionCard(
           title: '朗读模式',
-          subtitle: '开局选择：在线模式 / 本地模式，以及“仅用其一”或“谁优先”。',
-          child: FutureBuilder<RouteModeState?>(
-            future: SystemBridge.getRouteMode(),
-            builder: (ctx, snap) {
-              final id = snap.data?.mode ?? '';
-              final label = id.isEmpty ? '读取中…' : _modeLabel(id);
-              return Row(
-                children: [
-                  Expanded(child: Text('当前：$label')),
-                  FilledButton.tonal(
-                    onPressed: () => _openModeSetup(ctx),
-                    child: const Text('更改'),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-        
-        // ① 语速
-        SectionCard(
-          title: '语速',
-          subtitle: '影响全部朗读（离线与在线）。拖动后松手即保存。',
-          trailing: StatusChip(label: '${_speed.toStringAsFixed(1)} 倍'),
-          child: Slider(
-            value: _speed,
-            min: 0.5,
-            max: 2.0,
-            divisions: 15,
-            label: '${_speed.toStringAsFixed(1)} 倍',
-            onChanged: (v) => setState(() => _speed = v),
-            onChangeEnd: (v) async {
-              await ref.read(configProvider.notifier).save(speed: v);
-              if (context.mounted) {
-                showAppSnack(context, '语速已保存：${v.toStringAsFixed(1)} 倍');
-              }
-            },
-          ),
-        ),
-
-        // ② 在线朗读总开关（默认关）
-        SectionCard(
-          title: '在线朗读',
-          subtitle: '默认关闭。关闭时全部朗读由本机模型完成，不向任何服务器发送文本。',
+          subtitle: '决定顶部与底部界面展示的页面范围，以及网络与本地的协作策略。',
           trailing: StatusChip(
-            label: status == null ? '读取中' : onlineStateLabel(status.online),
-            color: (status?.online == OnlineState.ready)
-                ? Tokens.accent
-                : Tokens.textDim,
+            label: routeModeLabel(route.mode),
+            color: switch (workMode) {
+              AppWorkMode.onlineOnly => Tokens.cloud,
+              AppWorkMode.localOnly => Tokens.accent,
+              AppWorkMode.hybrid => Tokens.hybrid,
+            },
           ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      '在线朗读总开关',
-                      style: TextStyle(fontSize: 14.5, color: Tokens.text),
-                    ),
-                  ),
-                  Switch(
-                    value: config.onlineEnabled,
-                    onChanged: (v) => _toggleOnline(v, config),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                config.onlineEnabled
-                    ? '已开启：朗读文本将发送至第三方服务商合成。可随时关闭以撤回同意。'
-                    : '已关闭：朗读只在本机完成。开启前会先请你单独确认外发告知。',
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  color: Tokens.textDim,
-                  height: 1.5,
+              if (workMode == AppWorkMode.hybrid) ...[
+                SegmentedButton<String>(
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(value: 'prefer_online', label: Text('在线优先')),
+                    ButtonSegment(value: 'prefer_local', label: Text('本地优先')),
+                  ],
+                  selected: <String>{
+                    route.prefersOnline ? 'prefer_online' : 'prefer_local',
+                  },
+                  onSelectionChanged: (s) =>
+                      ref.read(routeModeProvider.notifier).setMode(s.first),
                 ),
-              ),
-              const SizedBox(height: 14),
-              // ②b AI 角色音色（在线）：RQ-507 / RQ-509
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'AI 角色音色（在线）',
-                      style: TextStyle(fontSize: 14.5, color: Tokens.text),
-                    ),
-                  ),
-                  Switch(
-                    value: config.roleVoiceEnabled,
-                    onChanged: config.onlineEnabled
-                        ? (v) => _toggleRoleVoice(v)
-                        : null,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                config.roleVoiceEnabled
-                    ? '已开启：本机读取已朗读过的片段做角色分析（产生少量文本用量），'
-                        '为每个角色造一个可区分的声音；音色前后可能略有差异，属正常。'
-                        '已建档角色 ${config.roleCount} 个 · 已分析 ${config.roleRefineCount} 次。'
-                    : '已关闭：在线朗读使用单一音色（不调用文本模型做角色分析）。',
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  color: Tokens.textDim,
-                  height: 1.5,
-                ),
-              ),
-              if (onlineError != null) ...[
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Tokens.background,
-                    borderRadius: BorderRadius.circular(Tokens.radiusButton),
-                    border: Border.all(color: Tokens.danger),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.error_outline,
-                              size: 16, color: Tokens.danger),
-                          const SizedBox(width: 6),
-                          const Expanded(
-                            child: Text(
-                              '密钥未能通过校验',
-                              style: TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                                color: Tokens.danger,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        onlineError,
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          color: Tokens.text,
-                          height: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        '可以试试：改用按量计费 API Key，或关闭在线朗读（两条路都不影响离线朗读）。',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Tokens.textDim,
-                          height: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: SecondaryButton(
-                              label: '改用按量计费',
-                              icon: Icons.swap_horiz,
-                              onPressed: () => _switchKeyKind('billing', config),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: SecondaryButton(
-                              label: '关闭在线朗读',
-                              icon: Icons.power_settings_new,
-                              danger: true,
-                              onPressed: () => _toggleOnline(false, config),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-
-        // ②c 在线语音引擎（通用转接：MiMo / OpenAI 兼容 / 自定义 HTTP）
-        _buildProviderCard(config),
-
-        // ③ 密钥类型（仅 MiMo 区分计费/Token Plan）+ ④ API Key + ⑤ Base URL
-        SectionCard(
-          title: isMimo ? '在线密钥' : '在线鉴权（可选）',
-          subtitle: isMimo
-              ? '两类密钥与接口地址相互绑定、不可混用：按量计费用 sk- 开头，Token Plan 用 tp- 开头。'
-              : '自建或免鉴权转发服务可留空 API Key；云端服务请填写 Bearer 密钥。',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (isMimo) ...[
-                _OptionRow(
-                  selected: !isPlan,
-                  title: '按量计费 API Key（推荐）',
-                  subtitle: '无订阅合规风险，不用不花钱；建议优先使用。',
-                  onTap: () => _switchKeyKind('billing', config),
-                ),
-                const SizedBox(height: 8),
-                _OptionRow(
-                  selected: isPlan,
-                  title: 'Token Plan 套餐密钥',
-                  subtitle: '可能违反平台方使用规则（封禁、停服、费用不退），需先完成风险确认。',
-                  danger: true,
-                  onTap: () => _switchKeyKind('plan', config),
-                ),
-                if (isPlan || config.tokenPlanAccepted) ...[
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Tokens.background,
-                      borderRadius: BorderRadius.circular(Tokens.radiusButton),
-                      border: Border.all(color: Tokens.danger),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.warning_amber_rounded,
-                                size: 16, color: Tokens.danger),
-                            SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'Token Plan 风险提示',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: Tokens.danger,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          tokenPlanResidentWarning,
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            color: Tokens.text,
-                            height: 1.5,
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () => showTokenPlanRiskDialog(context),
-                          child: const Text('查看风险说明全文'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 12),
               ],
-              TextField(
-                controller: _apiKey,
-                enabled: canEditKey,
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: 'API Key（密钥）',
-                  hintText: isMimo
-                      ? (isPlan ? 'tp-开头的套餐密钥' : 'sk-开头的按量计费密钥')
-                      : 'Bearer 密钥（本地自部署服务可留空）',
-                  helperText: canEditKey
-                      ? '密钥只保存在本机，用于直接向平台方发起请求；本 App 不上传、不转发。\n'
-                          '输入框留空时点「校验密钥」＝校验已保存的密钥。'
-                      : '选择 Token Plan 后，需先完成风险确认才能填写密钥。',
-                  helperMaxLines: 3,
-                ),
+              SecondaryButton(
+                label: '切换工作模式（纯在线 / 纯本地 / 混合）',
+                icon: Icons.swap_horiz_rounded,
+                onPressed: () => _openModeSetup(context, route.mode),
               ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: PrimaryButton(
-                      label: '保存密钥',
-                      icon: Icons.save_outlined,
-                      onPressed: canEditKey
-                          ? () async {
-                              final key = _apiKey.text.trim();
-                              if (key.isEmpty) {
-                                showAppSnack(context, '请先填写密钥', danger: true);
-                                return;
-                              }
-                              await ref
-                                  .read(configProvider.notifier)
-                                  .save(apiKey: key);
-                              _apiKey.clear();
-                              if (context.mounted) {
-                                showAppSnack(context, '密钥已保存到本机');
-                              }
-                            }
-                          : null,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: SecondaryButton(
-                      label: _validating ? '校验中…' : '校验密钥',
-                      icon: Icons.verified_outlined,
-                      onPressed: (!canEditKey || _validating)
-                          ? null
-                          : () => _validateKey(config),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                config.apiKeyMasked.isEmpty
-                    ? '尚未保存密钥'
-                    : '已保存密钥：${config.apiKeyMasked}',
-                style: const TextStyle(fontSize: 12.5, color: Tokens.textDim),
-              ),
-              if (isMimo) ...[
-                const Divider(height: 26),
-                const Text(
-                  '接口地址（Base URL）',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Tokens.text,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  config.baseUrl,
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    color: Tokens.accent,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  '默认跟随密钥类型自动切换；一般无需修改。',
-                  style: TextStyle(fontSize: 12, color: Tokens.textDim),
-                ),
-                if (!_advancedBase)
-                  TextButton(
-                    onPressed: () => setState(() => _advancedBase = true),
-                    child: const Text('高级：手动覆盖接口地址'),
-                  )
-                else ...[
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _baseUrlOverride,
-                    decoration: const InputDecoration(
-                      hintText: '例如 https://api.xiaomimimo.com/v1',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: PrimaryButton(
-                          label: '应用覆盖',
-                          onPressed: () async {
-                            final url = _baseUrlOverride.text.trim();
-                            if (url.isEmpty) {
-                              showAppSnack(context, '覆盖地址不能为空；'
-                                  '想恢复自动跟随请点右侧按钮', danger: true);
-                              return;
-                            }
-                            await ref
-                                .read(configProvider.notifier)
-                                .save(baseUrl: url);
-                            if (context.mounted) {
-                              showAppSnack(context, '接口地址已覆盖');
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: SecondaryButton(
-                          label: '恢复自动跟随',
-                          onPressed: () async {
-                            _baseUrlOverride.clear();
-                            await ref
-                                .read(configProvider.notifier)
-                                .save(baseUrl: '');
-                            if (context.mounted) {
-                              showAppSnack(context, '已恢复为跟随密钥类型自动切换');
-                            }
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
             ],
           ),
         ),
 
-        // ⑥ 数据流量 + ⑦ 自定义镜像
+        // ② 全局语速
         SectionCard(
-          title: '网络与下载',
-          subtitle: '省流策略：默认只用无线网络下载模型与在线朗读。',
+          title: '全局语速',
+          subtitle: '同时作用于本机合成与在线合成；拖动松手即自动保存。',
+          trailing: StatusChip(label: '${speed.toStringAsFixed(1)} 倍'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Slider(
+                value: speed.clamp(0.5, 2.0),
+                min: 0.5,
+                max: 2.0,
+                divisions: 15,
+                label: '${speed.toStringAsFixed(1)} 倍',
+                onChanged: (v) => setState(() => _speedDraft = v),
+                onChangeEnd: (v) async {
+                  await ref.read(configProvider.notifier).save(speed: v);
+                  if (mounted) {
+                    setState(() => _speedDraft = null);
+                    showAppSnack(context, '语速已保存：${v.toStringAsFixed(1)} 倍');
+                  }
+                },
+              ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final preset in const [0.8, 1.0, 1.2, 1.5])
+                    ChoiceChip(
+                      label: Text('${preset.toStringAsFixed(1)}×'),
+                      selected: (speed - preset).abs() < 0.05,
+                      onSelected: (_) async {
+                        await ref
+                            .read(configProvider.notifier)
+                            .save(speed: preset);
+                        if (mounted) {
+                          setState(() => _speedDraft = null);
+                          showAppSnack(
+                            context,
+                            '语速已设为 ${preset.toStringAsFixed(1)} 倍',
+                          );
+                        }
+                      },
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        // ③ 网络与流量策略
+        SectionCard(
+          title: '网络与流量策略',
+          subtitle: workMode == AppWorkMode.onlineOnly
+              ? '纯在线模式下，开启后可在蜂窝移动网络下继续在线合成。'
+              : workMode == AppWorkMode.localOnly
+                  ? '仅影响「模型管理」下载本地语音模型；离线朗读本身零流量消耗。'
+                  : '同时控制在线朗读与本地模型下载在蜂窝网络下的放行策略。',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -563,7 +149,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 children: [
                   const Expanded(
                     child: Text(
-                      '允许使用数据流量',
+                      '允许使用移动数据流量',
                       style: TextStyle(fontSize: 14.5, color: Tokens.text),
                     ),
                   ),
@@ -576,7 +162,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       if (context.mounted) {
                         showAppSnack(
                           context,
-                          v ? '已允许使用数据流量' : '已关闭：仅无线网络下联网',
+                          v ? '已允许使用移动数据流量' : '已切换为仅在 Wi-Fi 下联网',
                         );
                       }
                     },
@@ -586,84 +172,63 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               const SizedBox(height: 4),
               Text(
                 config.allowMobileData
-                    ? '已允许：没有无线网络时也可下载模型、使用在线朗读。'
-                    : '已关闭（默认）：只在无线网络下下载模型与联网朗读。',
+                    ? '已允许：移动数据网络下可正常在线朗读或下载模型。'
+                    : '已关闭（默认）：仅在无线网络（Wi-Fi）下执行在线合成与模型下载。',
                 style: const TextStyle(
                   fontSize: 12.5,
                   color: Tokens.textDim,
                   height: 1.5,
                 ),
               ),
-              const Divider(height: 26),
-              const Text(
-                '自定义下载镜像',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Tokens.text,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _mirror,
-                decoration: const InputDecoration(
-                  hintText: '留空使用官方镜像；例如 https://你的镜像地址/模型目录',
-                ),
-              ),
-              const SizedBox(height: 8),
-              PrimaryButton(
-                label: '保存镜像',
-                icon: Icons.cloud_download_outlined,
-                onPressed: () async {
-                  await ref
-                      .read(configProvider.notifier)
-                      .save(customMirror: _mirror.text.trim());
-                  if (context.mounted) {
-                    showAppSnack(
-                      context,
-                      _mirror.text.trim().isEmpty
-                          ? '已恢复使用官方镜像'
-                          : '镜像已保存，下载将优先使用',
-                    );
-                  }
-                },
-              ),
             ],
           ),
         ),
 
-        // ⑧ 入口：系统 TTS 设置 / 完整免责声明
+        // ④ 系统设置与诊断
         SectionCard(
-          title: '系统与法律',
+          title: '系统接入与工具',
           child: Column(
             children: [
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.settings_voice_outlined),
-                title: const Text(
-                  '系统文字转语音设置',
-                  style: TextStyle(fontSize: 14.5),
-                ),
+                leading: const Icon(Icons.settings_voice_outlined, color: Tokens.accent),
+                title: const Text('系统「文字转语音」设置', style: TextStyle(fontSize: 14.5)),
                 subtitle: const Text(
-                  '把「书声本地」设为系统默认朗读引擎',
+                  '将「书声」设为系统默认引擎供阅读软件调用',
                   style: TextStyle(fontSize: 12, color: Tokens.textDim),
                 ),
-                trailing: const Icon(Icons.chevron_right, color: Tokens.textDim),
-                onTap: () => _openSystemSettings(),
+                trailing: const Icon(Icons.chevron_right_rounded, color: Tokens.textDim),
+                onTap: _openSystemSettings,
               ),
               const Divider(height: 8),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.gavel_outlined),
-                title: const Text(
-                  '完整免责声明',
-                  style: TextStyle(fontSize: 14.5),
-                ),
+                leading: const Icon(Icons.monitor_heart_outlined, color: Tokens.cloud),
+                title: const Text('运行诊断与日志', style: TextStyle(fontSize: 14.5)),
                 subtitle: const Text(
-                  '在线朗读的风险、费用与个人信息告知（全文）',
+                  '系统通道 A/B 对照测试、性能指标与实时运行日志',
                   style: TextStyle(fontSize: 12, color: Tokens.textDim),
                 ),
-                trailing: const Icon(Icons.chevron_right, color: Tokens.textDim),
+                trailing: const Icon(Icons.chevron_right_rounded, color: Tokens.textDim),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => Scaffold(
+                      appBar: AppBar(title: const Text('诊断与日志')),
+                      body: const DiagnosticsPage(),
+                    ),
+                  ),
+                ),
+              ),
+              const Divider(height: 8),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.gavel_outlined, color: Tokens.textDim),
+                title: const Text('在线朗读免责声明', style: TextStyle(fontSize: 14.5)),
+                subtitle: const Text(
+                  '查看服务边界、密钥责任与隐私条款全文',
+                  style: TextStyle(fontSize: 12, color: Tokens.textDim),
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded, color: Tokens.textDim),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => const DisclaimerPage(),
@@ -674,25 +239,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ),
         ),
 
-        SectionCard(
-          title: '关于',
+        // ⑤ 关于
+        const SectionCard(
+          title: '关于书声',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const KeyValueRow(label: '应用', value: '书声本地（离线电子书朗读）'),
-              const KeyValueRow(label: '版本', value: '0.2.0-alpha.1（P3 界面）'),
-              const KeyValueRow(label: '作者', value: 'Kermond'),
-              const KeyValueRow(label: '许可', value: 'MIT'),
-              const SizedBox(height: 4),
-              const Text(
-                '界面与朗读引擎同属一个应用；本页面为演示数据，'
-                '真实模型与合成由本机引擎提供。',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Tokens.textDim,
-                  height: 1.5,
-                ),
-              ),
+              KeyValueRow(label: '应用名称', value: '书声（ebook2tts）'),
+              KeyValueRow(label: '版本', value: 'v1.0.1（通用 TTS 转接端）'),
+              KeyValueRow(label: '作者 / 许可', value: 'Kermond · MIT'),
             ],
           ),
         ),
@@ -700,383 +255,19 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  // ------------------------------------------------------------ 交互
-
-  Widget _buildProviderCard(AppConfig config) {
-    final isOpenAi = _providerKind == 'openai';
-    final isCustom = _providerKind == 'custom_http';
-    final isMimo = !isOpenAi && !isCustom;
-    return SectionCard(
-      title: '在线语音引擎（通用转接）',
-      subtitle: '可自由切换小米 MiMo、OpenAI 兼容接口（Fish-Speech / CosyVoice / IndexTTS / 硅基流动等）'
-          '或自定义 HTTP 模板。',
-      trailing: !_providerLoaded
-          ? null
-          : StatusChip(
-              label: isOpenAi
-                  ? 'OpenAI 兼容'
-                  : isCustom
-                      ? '自定义 HTTP'
-                      : '小米 MiMo',
-            ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _OptionRow(
-            selected: isMimo,
-            title: '小米 MiMo（含 AI 角色造音色）',
-            subtitle: 'SSE 流式 PCM，支持自动提取小说角色并按人物造音色。',
-            onTap: () => _selectProviderKind('mimo'),
-          ),
-          const SizedBox(height: 8),
-          _OptionRow(
-            selected: isOpenAi,
-            title: 'OpenAI 兼容（/v1/audio/speech）',
-            subtitle: '兼容 OpenAI、硅基流动、Fish-Speech、CosyVoice、Kokoro-FastAPI 等。',
-            onTap: () => _selectProviderKind('openai'),
-          ),
-          const SizedBox(height: 8),
-          _OptionRow(
-            selected: isCustom,
-            title: '自定义 HTTP 模板（通用转接）',
-            subtitle: '通过 JSON 模板变量对接任意在线或自部署 TTS 接口（支持 PCM / WAV / MP3）。',
-            onTap: () => _selectProviderKind('custom_http'),
-          ),
-          if (!isMimo) ...[
-            const SizedBox(height: 12),
-            if (isOpenAi) ...[
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  ActionChip(
-                    label: const Text('OpenAI 官方'),
-                    onPressed: () => _applyPreset(
-                      baseUrl: 'https://api.openai.com/v1',
-                      model: 'gpt-4o-mini-tts',
-                      voice: 'alloy',
-                      format: 'pcm',
-                    ),
-                  ),
-                  ActionChip(
-                    label: const Text('硅基流动 CosyVoice2'),
-                    onPressed: () => _applyPreset(
-                      baseUrl: 'https://api.siliconflow.cn/v1',
-                      model: 'FunAudioLLM/CosyVoice2-0.5B',
-                      voice: 'FunAudioLLM/CosyVoice2-0.5B:alex',
-                      format: 'pcm',
-                    ),
-                  ),
-                  ActionChip(
-                    label: const Text('通用自建网关'),
-                    onPressed: () => _applyPreset(
-                      baseUrl: 'https://your-tts-gateway.example.com/v1',
-                      model: 'tts-1',
-                      voice: 'alloy',
-                      format: 'wav',
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-            ],
-            TextField(
-              controller: _providerBaseUrl,
-              decoration: InputDecoration(
-                labelText: isCustom ? '完整请求 URL（HTTPS）' : 'Base URL（含 /v1）',
-                hintText: isCustom
-                    ? '例如 https://your-tts.example.com/tts'
-                    : '例如 https://api.openai.com/v1',
-              ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _providerModel,
-                    decoration: const InputDecoration(
-                      labelText: '模型（Model）',
-                      hintText: 'tts-1',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _providerVoice,
-                    decoration: const InputDecoration(
-                      labelText: '音色（Voice）',
-                      hintText: 'alloy',
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              '响应音频格式',
-              style: TextStyle(fontSize: 12.5, color: Tokens.textDim),
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final fmt in const ['pcm', 'wav', 'mp3', 'auto'])
-                  ChoiceChip(
-                    label: Text(fmt.toUpperCase()),
-                    selected: _responseFormat == fmt,
-                    onSelected: (_) => setState(() => _responseFormat = fmt),
-                  ),
-              ],
-            ),
-            if (isCustom) ...[
-              const SizedBox(height: 10),
-              TextField(
-                controller: _providerHeaders,
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: '自定义请求头（每行 Key: Value，可选）',
-                  hintText: 'X-Api-Key: {{apiKey}}',
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _providerBody,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'JSON 请求体模板（支持 {{text}} {{voice}} {{model}} {{speed}} {{apiKey}}）',
-                  hintText:
-                      '{"model":"{{model}}","input":"{{text}}","voice":"{{voice}}","speed":{{speed}}}',
-                ),
-              ),
-            ],
-            if (_providerError != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                _providerError!,
-                style: const TextStyle(fontSize: 12.5, color: Tokens.danger),
-              ),
-            ],
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: PrimaryButton(
-                    label: _savingProvider ? '保存中…' : '保存引擎配置',
-                    icon: Icons.save_outlined,
-                    onPressed: _savingProvider ? null : _saveProviderConfig,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: SecondaryButton(
-                    label: _probingProvider ? '测试中…' : '测试连通性',
-                    icon: Icons.network_check_outlined,
-                    onPressed: _probingProvider ? null : _probeProvider,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
+  Future<void> _openModeSetup(BuildContext context, String currentMode) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (routeCtx) => ModeSetupPage(
+          initialMode: currentMode,
+          isInitialSetup: false,
+          onDone: () async {
+            await ref.read(routeModeProvider.notifier).refresh();
+            if (routeCtx.mounted) Navigator.of(routeCtx).pop();
+          },
+        ),
       ),
     );
-  }
-
-  Future<void> _selectProviderKind(String kind) async {
-    if (kind == _providerKind) return;
-    setState(() {
-      _providerKind = kind;
-      _providerError = null;
-      if (kind == 'openai' && _providerBaseUrl.text.trim().isEmpty) {
-        _providerBaseUrl.text = 'https://api.openai.com/v1';
-        _providerModel.text = 'tts-1';
-        _providerVoice.text = 'alloy';
-      }
-    });
-    await SystemBridge.setOnlineProviderConfig(
-      OnlineProviderConfig(
-        providerKind: kind,
-        baseUrl: _providerBaseUrl.text.trim(),
-        model: _providerModel.text.trim(),
-        voice: _providerVoice.text.trim(),
-        responseFormat: _responseFormat,
-        sampleRate: _providerSampleRate,
-        customHeaders: _providerHeaders.text.trim(),
-        customBodyTemplate: _providerBody.text.trim(),
-      ),
-    );
-  }
-
-  void _applyPreset({
-    required String baseUrl,
-    required String model,
-    required String voice,
-    required String format,
-  }) {
-    setState(() {
-      _providerKind = 'openai';
-      _providerBaseUrl.text = baseUrl;
-      _providerModel.text = model;
-      _providerVoice.text = voice;
-      _responseFormat = format;
-      _providerError = null;
-    });
-  }
-
-  Future<bool> _saveProviderConfig({bool silent = false}) async {
-    setState(() {
-      _savingProvider = true;
-      _providerError = null;
-    });
-    final ok = await SystemBridge.setOnlineProviderConfig(
-      OnlineProviderConfig(
-        providerKind: _providerKind,
-        baseUrl: _providerBaseUrl.text.trim(),
-        model: _providerModel.text.trim(),
-        voice: _providerVoice.text.trim(),
-        responseFormat: _responseFormat,
-        sampleRate: _providerSampleRate,
-        customHeaders: _providerHeaders.text.trim(),
-        customBodyTemplate: _providerBody.text.trim(),
-      ),
-    );
-    if (!mounted) return ok;
-    setState(() => _savingProvider = false);
-    if (!silent) {
-      showAppSnack(
-        context,
-        ok ? '在线引擎配置已保存并热加载' : '保存失败，请重试',
-        danger: !ok,
-      );
-    }
-    return ok;
-  }
-
-  Future<void> _probeProvider() async {
-    setState(() {
-      _probingProvider = true;
-      _providerError = null;
-    });
-    await _saveProviderConfig(silent: true);
-    final typedKey = _apiKey.text.trim();
-    final err = await SystemBridge.validateOnlineProvider(
-      apiKey: typedKey.isEmpty ? null : typedKey,
-    );
-    if (!mounted) return;
-    setState(() {
-      _probingProvider = false;
-      _providerError = err;
-    });
-    if (err == null) {
-      showAppSnack(context, '在线引擎连通性测试通过');
-    }
-  }
-
-  Future<void> _toggleOnline(bool value, AppConfig config) async {
-    if (value) {
-      // 开启前单独同意（《个人信息保护法》第二十三条）
-      final agreed = await showOnlineConsentDialog(context);
-      if (agreed != true) {
-        if (mounted) {
-          showAppSnack(context, '已取消开启，在线朗读保持关闭');
-        }
-        return;
-      }
-      await ref.read(configProvider.notifier).save(onlineEnabled: true);
-      if (mounted) {
-        showAppSnack(context, '在线朗读已开启');
-      }
-    } else {
-      await ref.read(configProvider.notifier).save(onlineEnabled: false);
-      if (mounted) {
-        showAppSnack(context, '在线朗读已关闭，文本只在本机合成');
-      }
-    }
-  }
-
-  /// 「AI 角色音色」开关（RQ-509）：仅在线开启时可操作；关闭后在线恢复单音色。
-  Future<void> _toggleRoleVoice(bool value) async {
-    await ref.read(configProvider.notifier).save(roleVoiceEnabled: value);
-    if (!mounted) {
-      return;
-    }
-    showAppSnack(
-      context,
-      value ? 'AI 角色音色已开启：将按角色造可区分的声音' : 'AI 角色音色已关闭：在线朗读为单音色',
-    );
-  }
-
-  Future<void> _switchKeyKind(String kind, AppConfig config) async {
-    if (kind == config.keyKind) {
-      return;
-    }
-    if (kind == 'plan' && !config.tokenPlanAccepted) {
-      // 门槛：滑到底 + 勾选 + 同意，三者齐备才落状态；取消则回退，不记录同意
-      final agreed = await showTokenPlanRiskDialog(context);
-      if (agreed != true) {
-        if (mounted) {
-          showAppSnack(context, '已取消，仍保持「按量计费 API Key」');
-        }
-        return;
-      }
-      await ref
-          .read(configProvider.notifier)
-          .save(keyKind: 'plan', tokenPlanAccepted: true);
-      if (mounted) {
-        showAppSnack(context, '已切换为 Token Plan，请填写 tp- 开头的密钥');
-      }
-      return;
-    }
-    await ref.read(configProvider.notifier).save(keyKind: kind);
-    if (mounted) {
-      showAppSnack(
-        context,
-        kind == 'plan' ? '已切换为 Token Plan' : '已切换为按量计费 API Key',
-      );
-    }
-  }
-
-  /// 校验密钥。
-  ///
-  /// 语义（甲方 2026-09-15 指出原设计反直觉：保存后输入框即清空，反而无法校验）：
-  /// - 输入框**有内容** → 校验输入框里的这把（校验通过后再保存）；
-  /// - 输入框**为空** → 校验**已保存**的那把。
-  Future<void> _validateKey(AppConfig config) async {
-    final typed = _apiKey.text.trim();
-    final usingSaved = typed.isEmpty;
-    if (usingSaved &&
-        config.apiKeyMasked.trim().isEmpty &&
-        _providerKind == 'mimo') {
-      showAppSnack(context, '尚未保存密钥：请先填写密钥并点「保存密钥」', danger: true);
-      return;
-    }
-    setState(() {
-      _validating = true;
-      _keyError = null;
-    });
-    final error = await ref.read(configProvider.notifier).validateKey(
-          keyKind: config.keyKind,
-          apiKey: usingSaved ? "" : typed,
-        );
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _validating = false;
-      _keyError = error;
-    });
-    if (error == null) {
-      showAppSnack(
-        context,
-        usingSaved
-            ? (config.apiKeyMasked.trim().isEmpty
-                ? '校验通过：端点可用'
-                : '校验通过：已保存的密钥可用')
-            : '校验通过：输入的密钥可用（记得点「保存密钥」）',
-      );
-    }
   }
 
   Future<void> _openSystemSettings() async {
@@ -1084,86 +275,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     if (!mounted) return;
     switch (result) {
       case 'tts':
-        showAppSnack(context, '已打开系统「文字转语音」设置，请选择「书声本地」');
+        showAppSnack(context, '已打开系统「文字转语音」设置，请选择「书声」');
       case 'settings':
         showAppSnack(context, '已打开系统设置，请手动进入「文字转语音」');
       default:
-        showAppSnack(context, '未能打开系统设置，请手动前往系统设置中的「文字转语音」',
-            danger: true);
+        showAppSnack(context, '未能打开系统设置，请手动前往「文字转语音」', danger: true);
     }
-  }
-}
-
-/// 单选项行（自绘，避免控件版本差异）。
-class _OptionRow extends StatelessWidget {
-  const _OptionRow({
-    required this.selected,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-    this.danger = false,
-  });
-
-  final bool selected;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-  final bool danger;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = danger ? Tokens.danger : Tokens.accent;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(Tokens.radiusButton),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: selected ? Tokens.surfaceAlt : Tokens.background,
-          borderRadius: BorderRadius.circular(Tokens.radiusButton),
-          border: Border.all(
-            color: selected ? color : Tokens.divider,
-            width: selected ? 1.4 : 1,
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              selected
-                  ? Icons.radio_button_checked
-                  : Icons.radio_button_unchecked,
-              size: 20,
-              color: selected ? color : Tokens.textDim,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: selected ? color : Tokens.text,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Tokens.textDim,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

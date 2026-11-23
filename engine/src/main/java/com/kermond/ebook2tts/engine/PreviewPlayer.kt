@@ -24,6 +24,7 @@ import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 预览播放器（ADR-006）：合成+播放均在 :tts_service。
@@ -48,12 +49,14 @@ class PreviewPlayer(private val context: Context) {
         Thread(it, "preview-player")
     }
     private val playing = AtomicBoolean(false)
+    private val sessionSeq = AtomicLong(0L)
     private var track: AudioTrack? = null
     private var focusRequest: AudioFocusRequest? = null
 
     fun isPlaying(): Boolean = playing.get()
 
     fun stop() {
+        sessionSeq.incrementAndGet()
         playing.set(false)
         releaseTrack()
         abandonFocus()
@@ -66,73 +69,69 @@ class PreviewPlayer(private val context: Context) {
         listener: Listener,
     ) {
         stop()
+        val mySeq = sessionSeq.incrementAndGet()
+        fun isActive(): Boolean = playing.get() && sessionSeq.get() == mySeq
         playing.set(true)
         executor.execute {
             try {
-                val cleaned = TextClean.normalize(text)
-                if (cleaned.isBlank()) {
+                if (text.isBlank()) {
                     listener.onError(-1, "文本为空")
                     playing.set(false)
                     return@execute
                 }
-                // 试听语义分离（P6 / IM-518）：
-                // - voiceId != null ⇒「试听某个本地音色」（音色库场景）⇒ **强制本地合成**，
-                //   因为在线模型只有 8 个预置音色，用它"试听本地音色"毫无意义（甲方 P0 报障①）；
-                // - voiceId == null ⇒「跟随旁白朗读」（示例朗读场景）⇒ 允许在线，在线音色按旁白性别映射（IM-517）。
                 val explicitVoice = voiceId?.takeIf { it.isNotBlank() }
-                if (explicitVoice == null && tryOnlinePreview(cleaned, listener, speed, null)) return@execute
-                if (!playing.get()) return@execute // 在线失败后用户已停止：不再回落
+                if (explicitVoice == null && tryOnlinePreview(text, listener, speed, null, ::isActive)) return@execute
+                if (!isActive()) return@execute // 在线失败后用户已停止或重开：不再回落
                 val modelId = ConfigStore.modelId()
                 val spec = ModelCatalog.byId(modelId)
                 val dir = File(context.filesDir, "models/${spec.id}")
-                // ── P7 / R1 + R3（BUG-P7-015）：优先**借用**协调器的常驻后端，且用后不释放 ──
-                // 原实现每次试听都 new + load() + release()：真机（SDM845）实测单次整模型加载 12.2 s，
-                // 连续第二次试听总耗时 80.0 s。共享后这些代价只在服务首启（预热）发生一次。
-                // 回落条件：协调器不存在（例如进程被 PreviewService 单独拉起、TTS 服务尚未创建）。
-                // 回落条件：仅在协调器创建失败等异常情形下才自建实例（正常路径不会走到）
-                val borrowed = CoordinatorHolder.getOrCreate(context).borrowBackend { !playing.get() }
+                val borrowed = CoordinatorHolder.getOrCreate(context).borrowBackend { !isActive() }
                 val owned = borrowed == null
                 val backend = borrowed
                     ?: SherpaBackend(dir, spec, ConfigStore.threads()).also { it.load() }
                 if (!backend.isReady()) {
                     listener.onError(-12, backend.loadError ?: "模型未就绪")
-                    if (owned) backend.release() // 仅自有实例才释放；借用实例的释放权归协调器
-                    playing.set(false)
+                    if (owned) backend.release()
+                    if (sessionSeq.get() == mySeq) playing.set(false)
                     return@execute
                 }
                 Log.i(TAG, "PREVIEW|backend_ready|borrowed=${!owned}|sr=${backend.sampleRate}")
                 val pool = VoiceCatalog.poolForModel(modelId, backend.numSpeakers())
                 val voice = VoiceCatalog.resolve(pool, voiceId ?: ConfigStore.narratorVoice())
-                // P7 插桩（BUG-P7-016）：定位"首个请求 playing 之后迟迟不结束"的阻塞点
-                CoordinatorHolder.previewActive = true // P7：预览活跃标记（内存压力释放判定用）
+                CoordinatorHolder.previewActive = true
                 var doneSeg = 0
                 val tTask = System.currentTimeMillis()
                 try {
                     val tTrack = System.currentTimeMillis()
                     val trackOk = startTrack(backend.sampleRate, listener)
                     Log.i(TAG, "PREVIEW|track_open|ok=$trackOk|ms=${System.currentTimeMillis() - tTrack}")
-                    val segments = TextAnalyzer.analyze(cleaned)
+                    val segments = TextAnalyzer.analyze(text)
+                    val targetSpeed = speed.coerceIn(SpeedMapper.MIN, SpeedMapper.MAX)
                     for (seg in segments) {
-                        if (!playing.get()) break
-                        if (seg.text.isBlank()) continue
-                        val spoken = seg.text
-                        val tSynth = System.currentTimeMillis()
-                        val pcm = backend.generatePcm(
-                            spoken,
-                            voice.speakerId,
-                            speed.coerceIn(SpeedMapper.MIN, SpeedMapper.MAX),
-                        )
-                        Log.i(TAG, "PREVIEW|synth|chars=${spoken.length}|bytes=${pcm.size}|ms=${System.currentTimeMillis() - tSynth}")
-                        if (pcm.isNotEmpty() && playing.get()) {
-                            var i = 0
-                            val tWrite = System.currentTimeMillis()
-                            while (i < pcm.size && playing.get()) {
-                                val end = minOf(i + 4096, pcm.size)
-                                track?.write(pcm, i, end - i)
-                                i = end
-                            }
-                            Log.i(TAG, "PREVIEW|write|bytes=$i/${pcm.size}|ms=${System.currentTimeMillis() - tWrite}|playing=${playing.get()}")
+                        if (!isActive()) break
+                        val baseText = if (seg.kind == com.kermond.ebook2tts.core.SegmentKind.TITLE) {
+                            TextClean.chapterSpeakText(seg.text)
+                        } else {
+                            seg.text
                         }
+                        if (baseText.isBlank()) continue
+                        val spoken = com.kermond.ebook2tts.core.NumberReader.speakDigits(baseText)
+                        val tSynth = System.currentTimeMillis()
+                        var segBytes = 0
+                        backend.generateStreamingCached(spoken, voice.speakerId, targetSpeed) { pcm ->
+                            if (!isActive()) return@generateStreamingCached false
+                            if (pcm.isNotEmpty()) {
+                                segBytes += pcm.size
+                                var i = 0
+                                while (i < pcm.size && isActive()) {
+                                    val end = minOf(i + 4096, pcm.size)
+                                    track?.write(pcm, i, end - i)
+                                    i = end
+                                }
+                            }
+                            isActive()
+                        }
+                        Log.i(TAG, "PREVIEW|synth|chars=${spoken.length}|bytes=$segBytes|ms=${System.currentTimeMillis() - tSynth}")
                         doneSeg++
                         listener.onProgress((doneSeg * 100) / segments.size.coerceAtLeast(1))
                     }
@@ -140,13 +139,14 @@ class PreviewPlayer(private val context: Context) {
                     CoordinatorHolder.previewActive = false
                     if (owned) backend.release()
                 }
+                if (!isActive()) return@execute
                 Log.i(TAG, "PREVIEW|segments_done|count=$doneSeg|total_ms=${System.currentTimeMillis() - tTask}")
                 runCatching { track?.stop() }
                 stop()
                 listener.onDone()
             } catch (t: Throwable) {
                 Log.e(TAG, "preview failed", t)
-                stop()
+                if (sessionSeq.get() == mySeq) stop()
                 listener.onError(-4, t.message ?: "preview failed")
             }
         }
@@ -159,10 +159,11 @@ class PreviewPlayer(private val context: Context) {
      *         false = 在线失败且用户仍在播放 → 调用方回落本地**完整重播**（静默）。
      */
     private fun tryOnlinePreview(
-        cleaned: String,
+        rawText: String,
         listener: Listener,
         speed: Float,
         voiceHint: String?,
+        isActive: () -> Boolean,
     ): Boolean {
         val route = resolveOnlineRoute(voiceHint)
         OnlineSelector.hardBlockReason(route.choice)?.let { blockReason ->
@@ -183,10 +184,10 @@ class PreviewPlayer(private val context: Context) {
         // 角色精标输入（ADR-013）：仅支持角色造音色的引擎记录候选输入
         if (request.roleEnabled) {
             runCatching {
-                val cands = TextAnalyzer.analyze(cleaned).mapNotNull { seg ->
+                val cands = TextAnalyzer.analyze(rawText).mapNotNull { seg ->
                     seg.speakerHint?.trim()?.takeIf { it.isNotEmpty() }
                 }
-                if (cands.isNotEmpty()) RoleRegistry.offerExcerpt(cleaned, cands)
+                if (cands.isNotEmpty()) RoleRegistry.offerExcerpt(rawText, cands)
             }
         }
 
@@ -194,15 +195,20 @@ class PreviewPlayer(private val context: Context) {
         val stretchSpeed = speed.coerceIn(0.5f, 2.0f)
         val useStretcher = !request.usesNativeSpeed() && !PcmSpeedStretcher.isNoop(stretchSpeed)
         val stretcher = if (useStretcher) PcmSpeedStretcher(stretchSpeed) else null
-        val segments = TextAnalyzer.analyze(cleaned)
+        val segments = TextAnalyzer.analyze(rawText)
         var doneSeg = 0
         var trackFailed = false
         var anyPcm = false
         var trackSr = 0
         val designedLogged = HashSet<String>()
         for (seg in segments) {
-            if (!playing.get()) return true
-            if (seg.text.isBlank()) continue
+            if (!isActive()) return true
+            val segText = if (seg.kind == com.kermond.ebook2tts.core.SegmentKind.TITLE) {
+                TextClean.chapterSpeakText(seg.text)
+            } else {
+                seg.text
+            }
+            if (segText.isBlank()) continue
             // 角色音色（RQ-507）：试听同样按角色档案走 voicedesign（可区分即可，允许偏差）
             val roleName = seg.speakerHint?.trim()?.takeIf { it.isNotEmpty() }
             val plan = if (request.providerKind.supportsRoleVoiceDesign) {
@@ -224,10 +230,10 @@ class PreviewPlayer(private val context: Context) {
             var segResampler: StreamingPcmResampler? = null
             val outcome = OnlineBackendHolder.get().synthesizeChunks(
                 request = segRequest,
-                text = seg.text,
+                text = segText,
                 speed = stretchSpeed,
                 onChunk = onChunk@{ chunk ->
-                    if (!playing.get()) return@onChunk false
+                    if (!isActive()) return@onChunk false
                     val chunkSr = if (chunk.sampleRate > 0) chunk.sampleRate else request.sampleRate
                     if (track == null) {
                         trackSr = chunkSr
@@ -243,19 +249,23 @@ class PreviewPlayer(private val context: Context) {
                     } else {
                         chunk.pcm16Mono
                     }
-                    if (aligned.isEmpty()) return@onChunk playing.get()
+                    if (aligned.isEmpty()) return@onChunk isActive()
                     val pcm = stretcher?.process(aligned, activeSr) ?: aligned
-                    if (pcm.isEmpty()) return@onChunk playing.get()
+                    if (pcm.isEmpty()) return@onChunk isActive()
                     anyPcm = true
                     runCatching { track?.write(pcm, 0, pcm.size) }
-                    playing.get()
+                    isActive()
                 },
-                isCancelled = { !playing.get() },
+                isCancelled = { !isActive() },
             )
             when (outcome) {
                 is OnlineOutcome.Ok -> {
+                    if (ConfigStore.onlineLastError().isNotEmpty()) {
+                        ConfigStore.setOnlineLastError("")
+                        ConfigStore.notifyStatus(context, "ONLINE_OK")
+                    }
                     val tailResampled = segResampler?.flush()?.takeIf { it.isNotEmpty() }
-                    if (tailResampled != null && playing.get()) {
+                    if (tailResampled != null && isActive()) {
                         val activeSr = if (trackSr > 0) trackSr else request.sampleRate
                         val pcm = stretcher?.process(tailResampled, activeSr) ?: tailResampled
                         if (pcm.isNotEmpty()) runCatching { track?.write(pcm, 0, pcm.size) }
@@ -268,6 +278,8 @@ class PreviewPlayer(private val context: Context) {
                     return true
                 }
                 is OnlineOutcome.Failed -> {
+                    ConfigStore.setOnlineLastError(outcome.summary)
+                    ConfigStore.notifyStatus(context, "ONLINE_ERR")
                     if (!route.routeMode.allowsLocal) {
                         Log.e(
                             TAG,
@@ -292,7 +304,7 @@ class PreviewPlayer(private val context: Context) {
                 }
             }
         }
-        if (!playing.get()) return true
+        if (!isActive()) return true
         runCatching {
             // 榨出伸缩器残余样本（在线试听末段不截断）
             stretcher?.end()?.takeIf { it.isNotEmpty() }?.let { tail ->
@@ -396,6 +408,7 @@ class PreviewPlayer(private val context: Context) {
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         )
+        val bufBytes = (if (minBuf > 0) minBuf else 4096) * 2
         val attrs = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -410,7 +423,7 @@ class PreviewPlayer(private val context: Context) {
                 .setAudioAttributes(attrs)
                 .setAudioFormat(format)
                 .setTransferMode(AudioTrack.MODE_STREAM)
-                .setBufferSizeInBytes(minBuf * 2)
+                .setBufferSizeInBytes(bufBytes)
                 .build()
         } else {
             @Suppress("DEPRECATION")
@@ -419,7 +432,7 @@ class PreviewPlayer(private val context: Context) {
                 sr,
                 AudioFormat.CHANNEL_OUT_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
-                minBuf * 2,
+                bufBytes,
                 AudioTrack.MODE_STREAM
             )
         }
@@ -449,7 +462,11 @@ class PreviewPlayer(private val context: Context) {
                         .build()
                 )
                 .setOnAudioFocusChangeListener { change ->
-                    if (change != AudioManager.AUDIOFOCUS_GAIN) stop()
+                    if (change == AudioManager.AUDIOFOCUS_LOSS ||
+                        change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
+                    ) {
+                        stop()
+                    }
                 }
                 .build()
             focusRequest = req
@@ -457,7 +474,13 @@ class PreviewPlayer(private val context: Context) {
         } else {
             @Suppress("DEPRECATION")
             am.requestAudioFocus(
-                { change -> if (change != AudioManager.AUDIOFOCUS_GAIN) stop() },
+                { change ->
+                    if (change == AudioManager.AUDIOFOCUS_LOSS ||
+                        change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
+                    ) {
+                        stop()
+                    }
+                },
                 AudioManager.STREAM_MUSIC,
                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
             )
