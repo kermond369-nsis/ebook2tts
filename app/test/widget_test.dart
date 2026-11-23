@@ -11,10 +11,12 @@ import 'package:ebook2tts/pages/sample_page.dart';
 import 'package:ebook2tts/pages/settings_page.dart';
 import 'package:ebook2tts/state/providers.dart';
 
-Finder _pageScrollable(Type pageType) => find.descendant(
+Finder _pageScrollable(Type pageType) => find
+    .descendant(
       of: find.byType(pageType),
       matching: find.byType(Scrollable),
-    );
+    )
+    .first;
 
 Future<void> _bringIntoView(
   WidgetTester tester,
