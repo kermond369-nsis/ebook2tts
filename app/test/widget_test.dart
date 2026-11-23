@@ -212,12 +212,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
 
     await tester.scrollUntilVisible(
-      find.text('启用此模型'),
-      250,
+      find.text('启用此模型').hitTestable(),
+      180,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.pump();
     expect(find.text('启用此模型'), findsOneWidget);
-    await tester.tap(find.text('启用此模型'));
+    await tester.tap(find.text('启用此模型').hitTestable());
     await tester.pump(const Duration(milliseconds: 250));
 
     final models = await engine.models();
@@ -229,22 +230,23 @@ void main() {
     await tester.tap(find.text('设置').last);
     await tester.pump(const Duration(milliseconds: 200));
     await tester.scrollUntilVisible(
-      find.text('本地推理性能'),
-      250,
+      find.text('本地推理性能').hitTestable(),
+      180,
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('2 线程 · CPU'), findsOneWidget);
 
     await tester.scrollUntilVisible(
-      find.text('4 线程'),
-      200,
+      find.text('4 线程').hitTestable(),
+      180,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.text('4 线程'));
+    await tester.pump();
+    await tester.tap(find.text('4 线程').hitTestable());
     await tester.pump(const Duration(milliseconds: 100));
     await tester.scrollUntilVisible(
-      find.text('4 线程 · CPU'),
-      -200,
+      find.text('4 线程 · CPU').hitTestable(),
+      -180,
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('4 线程 · CPU'), findsOneWidget);
