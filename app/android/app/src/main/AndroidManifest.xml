@@ -4,7 +4,7 @@
 
     <application
         android:name="com.kermond.ebook2tts.engine.EngineApp"
-        android:label="书声本地"
+        android:label="书声"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:fullBackupContent="false"
@@ -29,14 +29,14 @@
             </intent-filter>
         </activity>
 
-        <!-- 引擎（:engine）的 TTS 服务与下载服务由库清单合并进来，此处不重复声明 -->
+        <!-- 引擎（:engine）的 TTS 服务由库清单合并进来，此处不重复声明 -->
 
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
 
-    <!-- Android 11+ 包可见性：允许探测系统「文字转语音」设置页 -->
+    <!-- Android 11+ 包可见性：探测系统「文字转语音」设置页与系统自带 TTS 引擎 -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
@@ -44,6 +44,9 @@
         </intent>
         <intent>
             <action android:name="com.android.settings.TTS_SETTINGS" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
     </queries>
 </manifest>

@@ -11,11 +11,12 @@ import android.speech.tts.TextToSpeechService
 import android.speech.tts.Voice
 import android.util.Log
 import androidx.core.content.ContextCompat
-import com.kermond.ebook2tts.core.VoiceCatalog
+import com.kermond.ebook2tts.core.OnlineVoiceCatalog
+import com.kermond.ebook2tts.core.TtsProviderKind
 import java.util.Locale
 
 /**
- * 系统 TTS 服务（AR-§1 / RQ-101）。声明于 :tts_service 进程。
+ * 系统 TTS 服务：声明于 `:tts_service` 进程，保留类名以确保旧版覆盖升级后无需在系统设置重新选取。
  */
 class LocalTextToSpeechService : TextToSpeechService() {
 
@@ -28,16 +29,7 @@ class LocalTextToSpeechService : TextToSpeechService() {
 
     override fun onCreate() {
         super.onCreate()
-        MigrationHelper.checkAndMigrate(this)
-        // P7 / R1：协调器改为**进程级单例**（预览通道可能先于 TTS 服务被拉起），
-        // 首个创建者触发一次预热；此后预览与系统朗读共享同一常驻后端。
         coordinator = CoordinatorHolder.getOrCreate(this)
-        if (ConfigStore.routeMode().allowsLocal) {
-            coordinator.ensureWarmIfIdleReleased()
-            if (!coordinator.isBackendReady()) {
-                ConfigStore.setStatusState("INITIALIZING")
-            }
-        }
         ConfigStore.notifyStatus(this, "INIT")
 
         val filter = IntentFilter(ConfigStore.ACTION_ENGINE_RELOAD)
@@ -45,53 +37,25 @@ class LocalTextToSpeechService : TextToSpeechService() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 val reason = intent?.getStringExtra("reason") ?: "config"
                 Log.i(TAG, "ENGINE_RELOAD reason=$reason")
-                coordinator.scheduleReload(reason)
+                coordinator.reloadConfig(reason)
             }
         }
         ContextCompat.registerReceiver(
             this,
             reloadReceiver!!,
             filter,
-            ContextCompat.RECEIVER_NOT_EXPORTED
+            ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         ConfigStore.notifyStatus(this, "CREATED")
-    }
-
-    /**
-     * P7（甲方 2026-09-17）：系统内存压力升高时**按需释放**常驻后端。
-     * 国产 ROM 对常驻内存更敏感（留存越多越易被杀），故在 RUNNING_LOW 及以上、且确无在用时就释放。
-     */
-    override fun onTrimMemory(level: Int) {
-        super.onTrimMemory(level)
-        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
-            coordinator.releaseIfIdle("trim_$level")
-        }
     }
 
     override fun onDestroy() {
         coordinator.requestStop()
         reloadReceiver?.let { runCatching { unregisterReceiver(it) } }
-        try {
-            super.onDestroy()
-        } finally {
-            // P7 追加（甲方 2026-09-17）：TTS 服务销毁时若预览未在用，则释放常驻后端，
-            // 避免在国产 ROM 上长期占住内存被优先回收（需要时会重新预热，代价 ~12 s）。
-            runCatching { coordinator.releaseIfIdle("service_destroy") }
-            // 协调器本身仍为进程级单例（避免重复预热）；仅释放其持有的 native 后端。
-            // ── P7 / R1 修正（BUG-P7-016 副产物）：协调器与常驻后端改为**进程生命周期** ──
-            // 不再随 TTS 服务销毁而 shutdown/detach。原因：系统解绑销毁 TTS 服务时，预览通道可能仍在
-            // 使用该后端；此前 detach 会让下一次预览 getOrCreate **再造一个协调器并再次预热**
-            // （真机 12 s/次），实测还出现同进程 4 个 tts-reload 线程并存的迹象。
-            // 释放交由进程回收；常驻内存仅一份模型副本（与 agy 复核"不做主动释放"的结论一致）。
-        }
+        super.onDestroy()
     }
 
-    private fun isServiceAvailable(): Boolean {
-        val mode = ConfigStore.routeMode()
-        val localOk = mode.allowsLocal &&
-            (ModelPresence.isActiveModelInstalled(this) || ModelPresence.hasAnyInstalled(this))
-        return localOk || ModelPresence.isOnlineConfigured()
-    }
+    private fun isServiceAvailable(): Boolean = EngineAvailability.isAvailable(this)
 
     override fun onIsLanguageAvailable(lang: String?, country: String?, variant: String?): Int {
         val available = isServiceAvailable()
@@ -124,37 +88,40 @@ class LocalTextToSpeechService : TextToSpeechService() {
 
     override fun onGetVoices(): List<Voice> {
         if (!isServiceAvailable()) return emptyList()
-        val modelId = ConfigStore.modelId()
-        val pool = VoiceCatalog.poolForModel(modelId)
-        val quality = if (modelId.startsWith("kokoro")) Voice.QUALITY_HIGH else Voice.QUALITY_NORMAL
-        return pool.map { v ->
-            Voice(
-                // ADR-007：系统侧展示中文名；onSynthesizeText 回传同名，由 VoiceCatalog 兼容解析
-                v.displayName,
-                Locale.SIMPLIFIED_CHINESE,
-                quality,
-                Voice.LATENCY_NORMAL,
-                false,
-                // 离线引擎特性声明（全本地合成，无需网络）
-                // KEY_FEATURE_EMBEDDED_SYNTHESIS 自 API 34 起 deprecated，
-                // 但仍是框架与旧客户端识别“离线合成”的规范特性键，故保留。
-                @Suppress("DEPRECATION")
-                mutableSetOf(TextToSpeech.Engine.KEY_FEATURE_EMBEDDED_SYNTHESIS)
-            )
+        val kind = ConfigStore.onlineProviderKind()
+        if (kind == TtsProviderKind.MIMO) {
+            return OnlineVoiceCatalog.MIMO_PRESETS.map { preset ->
+                val locale = if (preset.lang == "en") Locale.US else Locale.SIMPLIFIED_CHINESE
+                Voice(
+                    preset.id,
+                    locale,
+                    Voice.QUALITY_HIGH,
+                    Voice.LATENCY_NORMAL,
+                    true,
+                    emptySet(),
+                )
+            }
         }
+        val voiceName = ConfigStore.onlineVoice().trim().ifEmpty { kind.defaultVoice }.ifEmpty { "默认在线音色" }
+        return listOf(
+            Voice(
+                voiceName,
+                Locale.SIMPLIFIED_CHINESE,
+                Voice.QUALITY_HIGH,
+                Voice.LATENCY_NORMAL,
+                true,
+                emptySet(),
+            ),
+        )
     }
 
     override fun onIsValidVoiceName(voiceName: String?): Int {
         if (!isServiceAvailable()) return TextToSpeech.ERROR
-        val pool = VoiceCatalog.poolForModel(ConfigStore.modelId())
-        return if (VoiceCatalog.isValid(pool, voiceName)) TextToSpeech.SUCCESS
-        else TextToSpeech.ERROR
+        if (voiceName.isNullOrBlank()) return TextToSpeech.ERROR
+        return TextToSpeech.SUCCESS
     }
 
-    override fun onLoadVoice(voiceName: String?): Int {
-        if (!isServiceAvailable()) return TextToSpeech.ERROR
-        return onIsValidVoiceName(voiceName)
-    }
+    override fun onLoadVoice(voiceName: String?): Int = onIsValidVoiceName(voiceName)
 
     override fun onGetDefaultVoiceNameFor(
         lang: String?,
@@ -162,13 +129,16 @@ class LocalTextToSpeechService : TextToSpeechService() {
         variant: String?,
     ): String? {
         if (!isServiceAvailable()) return null
-        // 返回**展示名**（与 onGetVoices 一致）
-        val pool = VoiceCatalog.poolForModel(ConfigStore.modelId())
-        return VoiceCatalog.resolve(pool, ConfigStore.narratorVoice()).displayName
+        val kind = ConfigStore.onlineProviderKind()
+        return if (kind == TtsProviderKind.MIMO) {
+            OnlineVoiceCatalog.resolveMimoVoice(null, ConfigStore.onlineVoice())
+        } else {
+            ConfigStore.onlineVoice().trim().ifEmpty { kind.defaultVoice }.ifEmpty { "默认在线音色" }
+        }
     }
 
     override fun onSynthesizeText(request: SynthesisRequest, callback: SynthesisCallback) {
-        @Suppress("DEPRECATION") // 旧客户端可能只填 text（API 21+ 仍兼容）
+        @Suppress("DEPRECATION")
         val raw = request.charSequenceText?.toString() ?: request.text ?: ""
         val rate = request.speechRate
         val voice = request.voiceName

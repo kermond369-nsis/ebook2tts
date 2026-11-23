@@ -8,15 +8,13 @@ import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/common.dart';
 
-/// 诊断与日志页：分离展示在线/本地隔离状态、系统 TTS 对照测试、真实耗时与实时日志。
+/// 诊断与日志页：展示在线引擎状态、系统 TTS 兜底记录、通道测试与真实耗时。
 class DiagnosticsPage extends ConsumerWidget {
   const DiagnosticsPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final diag = ref.watch(diagnosticsProvider);
-    final route = ref.watch(routeModeProvider).value ??
-        const RouteModeState(mode: 'prefer_online', chosen: true);
 
     if (diag.isLoading && !diag.hasValue) {
       return const PageBody(
@@ -35,60 +33,60 @@ class DiagnosticsPage extends ConsumerWidget {
 
     final data = diag.value;
     final status = data?.status;
+    final config = data?.config;
     final perf = data?.perf ?? const <String, dynamic>{};
     final logs = data?.logs ?? const <String>[];
-    final meta = data?.meta ?? const RuntimeMeta();
+
+    final backendLabel = switch (perf['backend']) {
+      'online' => '在线引擎',
+      'system_tts' => '系统 TTS 兜底',
+      'online+system_tts' => '在线 + 系统 TTS 兜底',
+      _ => '--',
+    };
 
     return PageBody(
       children: [
         SectionCard(
           title: '运行概览',
-          trailing: StatusChip(label: routeModeLabel(route.mode), color: Tokens.cloud),
+          trailing: const StatusChip(label: '在线 + 系统兜底', color: Tokens.cloud),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (route.allowsOnline) ...[
+              KeyValueRow(
+                label: '在线状态',
+                value: status == null
+                    ? '读取中…'
+                    : '${onlineStateLabel(status.online)}（${status.providerKind}）',
+                valueColor: status?.online == OnlineState.ready
+                    ? Tokens.accent
+                    : Tokens.textDim,
+              ),
+              KeyValueRow(
+                label: '默认音色 / 超时',
+                value: config == null
+                    ? '--'
+                    : '${config.voice.isEmpty ? '默认' : config.voice} · ${config.timeoutMs ~/ 1000} 秒',
+              ),
+              KeyValueRow(
+                label: '兜底系统引擎',
+                value: status?.fallbackEngineLabel ?? '未检测',
+                valueColor: (status?.hasFallbackEngine ?? false)
+                    ? Tokens.accent
+                    : Tokens.danger,
+              ),
+              if (status != null && status.onlineLastError.isNotEmpty)
                 KeyValueRow(
-                  label: '在线状态',
-                  value: status == null
-                      ? '读取中…'
-                      : '${onlineStateLabel(status.online)}（${meta.providerKind}）',
-                  valueColor: status?.online == OnlineState.ready
-                      ? Tokens.accent
-                      : Tokens.textDim,
+                  label: '最近在线错误',
+                  value: status.onlineLastError,
+                  valueColor: Tokens.danger,
                 ),
-                if (meta.onlineLastError.isNotEmpty)
-                  KeyValueRow(
-                    label: '最近在线错误',
-                    value: meta.onlineLastError,
-                    valueColor: Tokens.danger,
-                  ),
-              ],
-              if (route.allowsLocal) ...[
+              if (status != null && status.lastFallbackReason.isNotEmpty)
                 KeyValueRow(
-                  label: '本地引擎',
-                  value: status == null ? '读取中…' : engineStateLabel(status.state),
-                  valueColor: status?.state == EngineState.ready
-                      ? Tokens.accent
-                      : Tokens.textDim,
+                  label: '最近回退记录',
+                  value:
+                      '${status.lastFallbackEngine}（${status.lastFallbackReason} · ${_formatTime(status.lastFallbackAt)}）',
+                  valueColor: Tokens.hybrid,
                 ),
-                KeyValueRow(
-                  label: '使用中模型',
-                  value: status?.modelId ?? '未安装',
-                ),
-                KeyValueRow(
-                  label: '采样率 / 音色',
-                  value: (status == null || status.sampleRate == 0)
-                      ? '待模型就绪'
-                      : '${(status.sampleRate / 1000).toStringAsFixed(1)} kHz · ${status.speakers} 个',
-                ),
-                if (meta.localLastError.isNotEmpty)
-                  KeyValueRow(
-                    label: '最近本地错误',
-                    value: meta.localLastError,
-                    valueColor: Tokens.danger,
-                  ),
-              ],
             ],
           ),
         ),
@@ -128,7 +126,7 @@ class DiagnosticsPage extends ConsumerWidget {
           ),
         ),
         SectionCard(
-          title: '最近一次系统 TTS 性能数据',
+          title: '最近一次朗读性能数据',
           trailing: perf.isEmpty
               ? null
               : TextButton(
@@ -141,7 +139,7 @@ class DiagnosticsPage extends ConsumerWidget {
                 ),
           child: perf.isEmpty
               ? const Text(
-                  '暂无系统通道合成记录。点上方「经系统 TTS 朗读」或在阅读软件听一段即可自动记录。',
+                  '暂无合成记录。可在「朗读」页试听或点上方「经系统 TTS 朗读」自动记录。',
                   style: TextStyle(
                     fontSize: 13,
                     color: Tokens.textDim,
@@ -151,10 +149,7 @@ class DiagnosticsPage extends ConsumerWidget {
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    KeyValueRow(
-                      label: '实际走线',
-                      value: perf['backend'] == 'online' ? '在线引擎' : '本地端侧引擎',
-                    ),
+                    KeyValueRow(label: '实际走线', value: backendLabel),
                     KeyValueRow(
                       label: '首块出声 (TTFB)',
                       value: '${perf['firstChunkMs'] ?? '--'} ms',

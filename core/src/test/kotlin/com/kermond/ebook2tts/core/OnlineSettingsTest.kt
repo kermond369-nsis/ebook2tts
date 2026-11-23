@@ -75,4 +75,13 @@ class OnlineSettingsTest {
         assertEquals("mimo-v2.6-flash", OnlineSettings.resolveLlmModel("  mimo-v2.5  "))
         assertEquals("mimo-v2.6-pro", OnlineSettings.resolveLlmModel(" mimo-v2.6-pro "))
     }
+
+    @Test
+    fun clampTimeoutMs_boundsAndDefault() {
+        assertEquals(OnlineSettings.DEFAULT_ONLINE_TIMEOUT_MS, OnlineSettings.clampTimeoutMs(0))
+        assertEquals(OnlineSettings.DEFAULT_ONLINE_TIMEOUT_MS, OnlineSettings.clampTimeoutMs(-500))
+        assertEquals(OnlineSettings.MIN_ONLINE_TIMEOUT_MS, OnlineSettings.clampTimeoutMs(500))
+        assertEquals(8_000, OnlineSettings.clampTimeoutMs(8_000))
+        assertEquals(OnlineSettings.MAX_ONLINE_TIMEOUT_MS, OnlineSettings.clampTimeoutMs(90_000))
+    }
 }

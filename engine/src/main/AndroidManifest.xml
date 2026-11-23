@@ -3,9 +3,13 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Android 11+ 包可见性：允许枚举设备上的其他系统/第三方 TTS 引擎用于弱网回退 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
 
     <application>
         <service
@@ -23,7 +27,7 @@
                 android:resource="@xml/tts_engine" />
         </service>
 
-        <!-- 试听入口（IM-114 / IM-406b）：跑在引擎进程内，界面进程不得推理 -->
+        <!-- 试听入口：跑在 :tts_service 引擎进程内 -->
         <service
             android:name=".PreviewService"
             android:exported="false"
@@ -56,10 +60,5 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
-
-        <service
-            android:name=".DownloadService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

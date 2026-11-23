@@ -8,13 +8,7 @@ import android.util.Log
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * 试听入口（IM-114 / IM-506b）。
- *
- * 为什么必须放在这里：推理只允许发生在 `:tts_service` 进程（架构书 AR-§1.7，主进程零推理）。
- * 界面进程（Flutter App）不能直接持有 [PreviewPlayer]，否则会被 [ProcessGuard] 拒绝
- * （实测返回 `-12 inference_outside_engine_process`）。故界面侧只发意图，本服务在引擎进程内代跑。
- *
- * 语义保证：试听**只播放样音**，绝不写 `ConfigStore.narratorVoice()`（旁白与试听彻底分离）。
+ * 试听入口（运行在 `:tts_service` 进程）。
  */
 class PreviewService : Service() {
 
@@ -36,7 +30,7 @@ class PreviewService : Service() {
                 val gen = activeGen.incrementAndGet()
                 val p = player ?: PreviewPlayer(this).also { player = it }
                 val speed = ConfigStore.speedValue()
-                Log.i(TAG, "PREVIEW|start|gen=$gen|voice=${voice ?: "跟随旁白"}|chars=${text.length}|speed=$speed")
+                Log.i(TAG, "PREVIEW|start|gen=$gen|voice=${voice ?: "默认"}|chars=${text.length}|speed=$speed")
                 ConfigStore.notifyStatus(this, "PREVIEW_START|${voice.orEmpty()}")
                 p.preview(text, voice, speed, object : PreviewPlayer.Listener {
                     override fun onStart(sampleRate: Int) {
@@ -45,9 +39,14 @@ class PreviewService : Service() {
                         ConfigStore.notifyStatus(this@PreviewService, "PREVIEW_START|${voice.orEmpty()}")
                     }
 
+                    override fun onStage(stage: String) {
+                        if (activeGen.get() != gen) return
+                        Log.i(TAG, "PREVIEW|stage=$stage|gen=$gen")
+                        ConfigStore.notifyStatus(this@PreviewService, "PREVIEW_STAGE|$stage")
+                    }
+
                     override fun onProgress(percent: Int) {
                         if (activeGen.get() != gen) return
-                        // 逐次打印太吵，仅在整十进度留痕
                         if (percent % 25 == 0) Log.i(TAG, "PREVIEW|progress=$percent")
                     }
 
@@ -93,7 +92,6 @@ class PreviewService : Service() {
         const val EXTRA_TEXT = "text"
         const val EXTRA_VOICE = "voice"
 
-        /** 试听一段文本（可在 voiceId 指定音色；null = 跟随当前旁白）。不写任何全局配置。 */
         fun preview(context: Context, text: String, voiceId: String?) {
             val intent = Intent(context, PreviewService::class.java)
                 .setAction(ACTION_PREVIEW)
@@ -103,7 +101,6 @@ class PreviewService : Service() {
                 .onFailure { Log.w(TAG, "PREVIEW|start_failed|${it.javaClass.simpleName}") }
         }
 
-        /** 停止试听。 */
         fun stop(context: Context) {
             val intent = Intent(context, PreviewService::class.java).setAction(ACTION_STOP)
             runCatching { context.startService(intent) }

@@ -387,50 +387,14 @@ class SecondaryButton extends StatelessWidget {
   }
 }
 
-/// 体积格式化：按 1 兆 = 100 万字节（与清单实测值口径一致）。
-String formatMb(int bytes) => '${bytes ~/ 1000000} 兆';
-
-/// 下载阶段 → 中文文案。
-String phaseLabel(String phase) {
-  switch (phase) {
-    case 'probe':
-      return '正在选择最快镜像';
-    case 'download':
-      return '下载中';
-    case 'download_vocoder':
-      return '下载声码器';
-    case 'verify':
-      return '校验文件完整性';
-    case 'extract':
-      return '解压中';
-    case 'promote':
-      return '安装收尾';
-    case 'done':
-      return '完成';
-    case 'error':
-      return '失败';
-    default:
-      return '等待中';
-  }
-}
-
-/// 引擎状态 → 中文文案。
-String engineStateLabel(dynamic state) {
-  switch (state.toString()) {
-    case 'EngineState.noModel':
-      return '未安装模型';
-    case 'EngineState.loading':
-      return '模型载入中';
-    case 'EngineState.ready':
-      return '就绪';
-    case 'EngineState.reloading':
-      return '重载中';
-    case 'EngineState.error':
-      return '故障';
-    default:
-      return '未知';
-  }
-}
+/// 试听/朗读阶段 → 中文文案。
+String previewStageLabel(String? stage) => switch (stage) {
+      'connecting_online' => '正在连接在线引擎…',
+      'synthesizing' => '正在合成语音…',
+      'fallback_system' => '已回退系统 TTS…',
+      'playing' => '播放中',
+      _ => '播放中',
+    };
 
 /// 在线状态 → 中文文案。
 String onlineStateLabel(dynamic state) {
@@ -447,14 +411,6 @@ String onlineStateLabel(dynamic state) {
       return '未知';
   }
 }
-
-/// 路由模式 → 简洁中文标签。
-String routeModeLabel(String modeId) => switch (modeId) {
-      'only_online' => '纯在线模式',
-      'only_local' => '纯本地模式',
-      'prefer_local' => '混合（本地优先）',
-      _ => '混合（在线优先）',
-    };
 
 /// 统一提示条。
 void showAppSnack(BuildContext context, String message, {bool danger = false}) {

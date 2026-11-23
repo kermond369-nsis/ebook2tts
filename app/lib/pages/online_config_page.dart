@@ -3,19 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../content/legal_texts.dart';
 import '../engine/engine_service.dart';
-import '../platform/system_bridge.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/common.dart';
 import '../widgets/online_consent_dialog.dart';
 import '../widgets/token_plan_dialog.dart';
 
-/// 在线引擎专属配置页（仅在「纯在线模式」与「混合模式」下展示）。
-///
-/// 集中管理：
-/// 1. 在线朗读总开关（开启前单独同意）与真实在线报错提示（与本地无模型状态完全隔离）；
-/// 2. 多引擎选择：小米 MiMo / OpenAI 兼容接口 / 自定义 HTTP JSON 模板；
-/// 3. 密钥保存（含 `sk-` / `tp-` 前缀自动提醒）与连通性校验。
+/// 在线引擎配置页：管理在线开关、三协议切换、鉴权与 MiMo 预置音色。
 class OnlineConfigPage extends ConsumerStatefulWidget {
   const OnlineConfigPage({super.key});
 
@@ -35,7 +29,7 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
   String _providerKind = 'mimo';
   String _responseFormat = 'pcm';
   int _sampleRate = 24000;
-  bool _syncedProvider = false;
+  bool _syncedFromConfig = false;
   bool _showAdvancedMimoBase = false;
   bool _validating = false;
   bool _savingProvider = false;
@@ -65,13 +59,13 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
     super.dispose();
   }
 
-  void _syncFromProvider(OnlineProviderConfig cfg) {
-    if (_syncedProvider) return;
-    _syncedProvider = true;
+  void _syncFromConfig(AppConfig cfg) {
+    if (_syncedFromConfig) return;
+    _syncedFromConfig = true;
     _providerKind = cfg.providerKind;
     _responseFormat = cfg.responseFormat;
     _sampleRate = cfg.sampleRate;
-    _providerBaseUrl.text = cfg.baseUrl;
+    _providerBaseUrl.text = cfg.providerKind == 'mimo' ? '' : cfg.baseUrl;
     _providerModel.text = cfg.model;
     _providerVoice.text = cfg.voice;
     _providerHeaders.text = cfg.customHeaders;
@@ -82,8 +76,6 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
   Widget build(BuildContext context) {
     final config = ref.watch(configProvider).value;
     final status = ref.watch(statusProvider).value;
-    final providerCfg = ref.watch(onlineProviderConfigProvider).value;
-    final meta = ref.watch(runtimeMetaProvider).value ?? const RuntimeMeta();
 
     if (config == null) {
       return const PageBody(
@@ -100,9 +92,7 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
       );
     }
 
-    if (providerCfg != null) {
-      _syncFromProvider(providerCfg);
-    }
+    _syncFromConfig(config);
 
     final isMimo = _providerKind == 'mimo';
     final isOpenAi = _providerKind == 'openai';
@@ -110,12 +100,11 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
     final isPlan = config.keyKind == 'plan';
     final canEditKey = !isMimo || !isPlan || config.tokenPlanAccepted;
 
-    // 仅展示真实在线侧错误，绝不再因本地未安装模型弹出密钥误报
     final effectiveOnlineError = _manualError ??
-        (meta.onlineLastError.isNotEmpty
-            ? meta.onlineLastError
+        ((status?.onlineLastError.isNotEmpty ?? false)
+            ? status!.onlineLastError
             : (status?.online == OnlineState.error
-                ? '当前在线配置尚未通过鉴权或接口不可达，请检查密钥与地址。'
+                ? '当前在线配置尚未通过鉴权或接口不可达，朗读时将自动回退系统 TTS。'
                 : null));
 
     final trimmedTyped = _typedKey.trim();
@@ -140,7 +129,7 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
         // ① 在线总开关 & 实时状态
         SectionCard(
           title: '在线合成开关',
-          subtitle: '开启前需单独确认外发告知；开启后待朗读句会发送至你配置的接口完成合成。',
+          subtitle: '开启前需单独确认外发告知；未开启或弱网超时将自动改用系统自带 TTS。',
           trailing: StatusChip(
             label: status == null ? '读取中' : onlineStateLabel(status.online),
             color: statusColor,
@@ -162,7 +151,7 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
                   ),
                   Switch(
                     value: config.onlineEnabled,
-                    onChanged: (v) => _toggleOnline(v),
+                    onChanged: _toggleOnline,
                   ),
                 ],
               ),
@@ -288,9 +277,16 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
           ),
         ),
 
-        // ③ 按引擎展示专属配置卡片
+        // ③ 专属配置卡片
         if (isMimo)
-          _buildMimoCard(context, config, isPlan, canEditKey, keyMismatch, detectedKind)
+          _buildMimoCard(
+            context,
+            config,
+            isPlan,
+            canEditKey,
+            keyMismatch,
+            detectedKind,
+          )
         else
           _buildGenericProviderCard(context, config, isOpenAi, isCustom),
       ],
@@ -305,8 +301,33 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
     bool keyMismatch,
     String? detectedKind,
   ) {
+    final activeVoice = config.voice.isNotEmpty ? config.voice : '白桦';
     return Column(
       children: [
+        SectionCard(
+          title: 'MiMo 默认音色',
+          subtitle: '选择旁白与单角色基础音色；开启 AI 角色造音色时，命名角色会自动生成独立声线。',
+          trailing: StatusChip(label: activeVoice, color: Tokens.accent),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final preset in kMimoVoicePresets)
+                ChoiceChip(
+                  label: Text(preset.label),
+                  selected: activeVoice == preset.id,
+                  onSelected: (_) async {
+                    await ref
+                        .read(configProvider.notifier)
+                        .save(voice: preset.id);
+                    if (context.mounted) {
+                      showAppSnack(context, '默认在线音色已设为：${preset.label}');
+                    }
+                  },
+                ),
+            ],
+          ),
+        ),
         SectionCard(
           title: 'MiMo 密钥与域名',
           subtitle: '两类密钥对应不同接入域名：sk- 走按量计费，tp- 走 Token Plan 集群。',
@@ -349,7 +370,7 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
                   labelText: 'API Key（密钥）',
                   hintText: isPlan ? '输入 tp- 开头的套餐密钥' : '输入 sk- 开头的按量计费密钥',
                   helperText: canEditKey
-                      ? '仅存于本机多进程安全存储，不上传、不转发；输入框留空时点「校验密钥」将检测已保存密钥。'
+                      ? '仅存于本机多进程安全存储，不上传、不转发；留空点「校验密钥」检测已保存密钥。'
                       : '请先选择 Token Plan 并完成风险确认后再填写。',
                   helperMaxLines: 2,
                 ),
@@ -366,9 +387,7 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
                   action: TextButton(
                     onPressed: () => _switchKeyKind(detectedKind, config),
                     child: Text(
-                      detectedKind == 'plan'
-                          ? '切换为 Token Plan'
-                          : '切换为按量计费',
+                      detectedKind == 'plan' ? '切换为 Token Plan' : '切换为按量计费',
                     ),
                   ),
                 ),
@@ -398,9 +417,7 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
               const SizedBox(height: 8),
               KeyValueRow(
                 label: '已保存密钥',
-                value: config.apiKeyMasked.isEmpty
-                    ? '未保存'
-                    : config.apiKeyMasked,
+                value: config.apiKeyMasked.isEmpty ? '未保存' : config.apiKeyMasked,
               ),
               KeyValueRow(
                 label: '生效地址',
@@ -574,6 +591,25 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
                 ),
             ],
           ),
+          if (_responseFormat == 'pcm') ...[
+            const SizedBox(height: 10),
+            const Text(
+              '无头 PCM 默认采样率',
+              style: TextStyle(fontSize: 12.5, color: Tokens.textDim),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final sr in const [16000, 22050, 24000, 44100])
+                  ChoiceChip(
+                    label: Text('${(sr / 1000).toStringAsFixed(sr % 1000 == 0 ? 0 : 2)}k'),
+                    selected: _sampleRate == sr,
+                    onSelected: (_) => setState(() => _sampleRate = sr),
+                  ),
+              ],
+            ),
+          ],
           if (isCustom) ...[
             const SizedBox(height: 10),
             TextField(
@@ -635,7 +671,7 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
     if (value) {
       final agreed = await showOnlineConsentDialog(context);
       if (agreed != true) {
-        if (mounted) showAppSnack(context, '已取消开启，在线朗读保持关闭');
+        if (mounted) showAppSnack(context, '已取消开启，当前使用系统 TTS 兜底');
         return;
       }
       await ref.read(configProvider.notifier).save(onlineEnabled: true);
@@ -647,7 +683,7 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
       await ref.read(configProvider.notifier).save(onlineEnabled: false);
       if (mounted) {
         setState(() => _manualError = null);
-        showAppSnack(context, '在线朗读已关闭');
+        showAppSnack(context, '在线朗读已关闭，将使用系统 TTS');
       }
     }
   }
@@ -657,7 +693,7 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
     if (!mounted) return;
     showAppSnack(
       context,
-      value ? 'AI 角色音色已开启' : 'AI 角色音色已关闭：使用单一旁白音色',
+      value ? 'AI 角色音色已开启' : 'AI 角色音色已关闭：使用默认在线音色',
     );
   }
 
@@ -666,23 +702,29 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
     setState(() {
       _providerKind = kind;
       _manualError = null;
-      if (kind == 'openai' && _providerBaseUrl.text.trim().isEmpty) {
+      if (kind == 'openai' &&
+          (_providerBaseUrl.text.trim().isEmpty ||
+              _providerBaseUrl.text.contains('xiaomimimo.com'))) {
         _providerBaseUrl.text = 'https://api.openai.com/v1';
         _providerModel.text = 'tts-1';
         _providerVoice.text = 'alloy';
+      } else if (kind == 'mimo') {
+        _providerModel.text = 'mimo-v2.5-tts';
+        if (_providerVoice.text.trim().isEmpty ||
+            _providerVoice.text.trim() == 'alloy') {
+          _providerVoice.text = '白桦';
+        }
       }
     });
-    await ref.read(onlineProviderConfigProvider.notifier).save(
-          OnlineProviderConfig(
-            providerKind: kind,
-            baseUrl: _providerBaseUrl.text.trim(),
-            model: _providerModel.text.trim(),
-            voice: _providerVoice.text.trim(),
-            responseFormat: _responseFormat,
-            sampleRate: _sampleRate,
-            customHeaders: _providerHeaders.text.trim(),
-            customBodyTemplate: _providerBody.text.trim(),
-          ),
+    await ref.read(configProvider.notifier).save(
+          providerKind: kind,
+          baseUrl: kind == 'mimo' ? '' : _providerBaseUrl.text.trim(),
+          model: _providerModel.text.trim(),
+          voice: _providerVoice.text.trim(),
+          responseFormat: _responseFormat,
+          sampleRate: _sampleRate,
+          customHeaders: _providerHeaders.text.trim(),
+          customBodyTemplate: _providerBody.text.trim(),
         );
   }
 
@@ -770,9 +812,9 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
       _validating = true;
       _manualError = null;
     });
-    final err = await ref.read(configProvider.notifier).validateKey(
+    final err = await ref.read(configProvider.notifier).validateOnline(
           keyKind: config.keyKind,
-          apiKey: usingSaved ? '' : typed,
+          apiKey: usingSaved ? null : typed,
         );
     if (!mounted) return;
     setState(() {
@@ -793,25 +835,23 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
       _manualError = null;
     });
     final typedKey = _apiKey.text.trim();
+    await ref.read(configProvider.notifier).save(
+          providerKind: _providerKind,
+          baseUrl: _providerBaseUrl.text.trim(),
+          model: _providerModel.text.trim(),
+          voice: _providerVoice.text.trim(),
+          responseFormat: _responseFormat,
+          sampleRate: _sampleRate,
+          customHeaders: _providerHeaders.text.trim(),
+          customBodyTemplate: _providerBody.text.trim(),
+          apiKey: typedKey.isNotEmpty ? typedKey : null,
+        );
     if (typedKey.isNotEmpty) {
-      await ref.read(configProvider.notifier).save(apiKey: typedKey);
       _apiKey.clear();
     }
-    final ok = await ref.read(onlineProviderConfigProvider.notifier).save(
-          OnlineProviderConfig(
-            providerKind: _providerKind,
-            baseUrl: _providerBaseUrl.text.trim(),
-            model: _providerModel.text.trim(),
-            voice: _providerVoice.text.trim(),
-            responseFormat: _responseFormat,
-            sampleRate: _sampleRate,
-            customHeaders: _providerHeaders.text.trim(),
-            customBodyTemplate: _providerBody.text.trim(),
-          ),
-        );
     if (!mounted) return;
     setState(() => _savingProvider = false);
-    showAppSnack(context, ok ? '在线引擎配置已保存并热生效' : '保存失败', danger: !ok);
+    showAppSnack(context, '在线引擎配置已保存并热生效');
   }
 
   Future<void> _probeGeneric() async {
@@ -819,22 +859,20 @@ class _OnlineConfigPageState extends ConsumerState<OnlineConfigPage> {
       _probingProvider = true;
       _manualError = null;
     });
-    await ref.read(onlineProviderConfigProvider.notifier).save(
-          OnlineProviderConfig(
-            providerKind: _providerKind,
-            baseUrl: _providerBaseUrl.text.trim(),
-            model: _providerModel.text.trim(),
-            voice: _providerVoice.text.trim(),
-            responseFormat: _responseFormat,
-            sampleRate: _sampleRate,
-            customHeaders: _providerHeaders.text.trim(),
-            customBodyTemplate: _providerBody.text.trim(),
-          ),
+    await ref.read(configProvider.notifier).save(
+          providerKind: _providerKind,
+          baseUrl: _providerBaseUrl.text.trim(),
+          model: _providerModel.text.trim(),
+          voice: _providerVoice.text.trim(),
+          responseFormat: _responseFormat,
+          sampleRate: _sampleRate,
+          customHeaders: _providerHeaders.text.trim(),
+          customBodyTemplate: _providerBody.text.trim(),
         );
     final typedKey = _apiKey.text.trim();
     final err = await ref
-        .read(onlineProviderConfigProvider.notifier)
-        .probe(apiKey: typedKey.isEmpty ? null : typedKey);
+        .read(configProvider.notifier)
+        .validateOnline(apiKey: typedKey.isEmpty ? null : typedKey);
     if (!mounted) return;
     setState(() {
       _probingProvider = false;

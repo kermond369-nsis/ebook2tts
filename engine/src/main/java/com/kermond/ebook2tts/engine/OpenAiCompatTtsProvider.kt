@@ -7,18 +7,12 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.io.InterruptedIOException
-import java.util.concurrent.Callable
-import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
-import java.util.concurrent.RejectedExecutionException
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
  * OpenAI `/v1/audio/speech` 兼容在线 TTS 适配器。
- * 兼容 OpenAI、SiliconFlow（CosyVoice2/IndexTTS）、Fish-Speech、Kokoro-FastAPI 等标准协议端点。
  */
 class OpenAiCompatTtsProvider(
     private val client: OkHttpClient,
@@ -34,75 +28,46 @@ class OpenAiCompatTtsProvider(
         onChunk: (TtsAudioChunk) -> Boolean,
         isCancelled: () -> Boolean,
     ): OnlineOutcome {
-        val callRef = AtomicReference<Call?>(null)
-        val job = try {
-            io.submit(Callable { runSpeech(request, text, speed, onChunk, isCancelled, callRef) })
-        } catch (_: RejectedExecutionException) {
-            return OnlineOutcome.Failed(OnlineFailureKind.NETWORK, "pool_shutdown", "在线线程池不可用")
-        }
-        while (true) {
-            if (isCancelled()) {
-                callRef.get()?.cancel()
-                return OnlineOutcome.Cancelled
-            }
-            try {
-                return job.get(CANCEL_TICK_MS, TimeUnit.MILLISECONDS)
-            } catch (_: TimeoutException) {
-                // 等待结果的同时保持 ≤50ms 取消响应
-            } catch (e: ExecutionException) {
-                val cause = e.cause
-                val summary = ErrorSanitizer.sanitize(cause?.message ?: cause?.javaClass?.simpleName ?: "worker_error")
-                return OnlineOutcome.Failed(OnlineFailureKind.NETWORK, "worker", summary)
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-                callRef.get()?.cancel()
-                return OnlineOutcome.Cancelled
-            }
+        val firstByteSeen = AtomicBoolean(false)
+        return OnlineCallRunner.executeStream(
+            io = io,
+            timeoutMs = request.timeoutMs,
+            firstByteSeen = firstByteSeen,
+            isCancelled = isCancelled,
+        ) { callRef ->
+            runSpeech(request, text, speed, onChunk, firstByteSeen, isCancelled, callRef)
         }
     }
 
     override fun validate(request: OnlineRequest): String? {
         val base = request.baseUrl.trim().trimEnd('/')
         if (!EndpointUrlPolicy.isAllowed(base)) return "接口地址必须以 https:// 开头"
-        val job = try {
-            io.submit(Callable {
-                val modelsBuilder = Request.Builder().url("$base/models").get()
-                if (request.apiKey.isNotBlank()) {
-                    modelsBuilder.header("Authorization", "Bearer ${request.apiKey}")
+        return OnlineCallRunner.executeValidation(io) {
+            val validateClient = OnlineCallRunner.clientForTimeout(client, 15_000)
+            val modelsBuilder = Request.Builder().url("$base/models").get()
+            if (request.apiKey.isNotBlank()) {
+                modelsBuilder.header("Authorization", "Bearer ${request.apiKey}")
+            }
+            validateClient.newCall(modelsBuilder.build()).execute().use { resp ->
+                if (resp.isSuccessful) return@executeValidation null
+                if (resp.code == 401 || resp.code == 403) {
+                    val body = resp.body?.string().orEmpty()
+                    return@executeValidation ErrorSanitizer.sanitize("HTTP ${resp.code}: $body")
                 }
-                client.newCall(modelsBuilder.build()).execute().use { resp ->
-                    if (resp.isSuccessful) return@Callable null
-                    if (resp.code == 401 || resp.code == 403) {
-                        val body = resp.body?.string().orEmpty()
-                        return@Callable ErrorSanitizer.sanitize("HTTP ${resp.code}: $body")
-                    }
-                    // 部分轻量化自建服务未实现 GET /models（返回 404/405）：直接以最小文本探测 /audio/speech
-                    if (resp.code != 404 && resp.code != 405 && resp.code != 501) {
-                        val body = resp.body?.string().orEmpty()
-                        return@Callable ErrorSanitizer.sanitize("HTTP ${resp.code}: $body")
-                    }
+                if (resp.code != 404 && resp.code != 405 && resp.code != 501) {
+                    val body = resp.body?.string().orEmpty()
+                    return@executeValidation ErrorSanitizer.sanitize("HTTP ${resp.code}: $body")
                 }
-                val speechReq = buildSpeechHttpRequest(base, request, "测试", 1.0f)
-                client.newCall(speechReq).execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        val body = resp.body?.string().orEmpty()
-                        return@Callable ErrorSanitizer.sanitize("HTTP ${resp.code}: $body")
-                    }
-                    val bytes = resp.body?.bytes() ?: ByteArray(0)
-                    if (bytes.isEmpty()) "服务端返回空音频" else null
+            }
+            val speechReq = buildSpeechHttpRequest(base, request, "测试", 1.0f)
+            validateClient.newCall(speechReq).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    val body = resp.body?.string().orEmpty()
+                    return@executeValidation ErrorSanitizer.sanitize("HTTP ${resp.code}: $body")
                 }
-            })
-        } catch (_: RejectedExecutionException) {
-            return "在线线程池不可用"
-        }
-        return try {
-            job.get()
-        } catch (e: ExecutionException) {
-            ErrorSanitizer.sanitize(e.cause?.message ?: "网络错误")
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-            job.cancel(true)
-            "已取消"
+                val bytes = resp.body?.bytes() ?: ByteArray(0)
+                if (bytes.isEmpty()) "服务端返回空音频" else null
+            }
         }
     }
 
@@ -111,6 +76,7 @@ class OpenAiCompatTtsProvider(
         text: String,
         speed: Float,
         onChunk: (TtsAudioChunk) -> Boolean,
+        firstByteSeen: AtomicBoolean,
         isCancelled: () -> Boolean,
         callRef: AtomicReference<Call?>,
     ): OnlineOutcome {
@@ -119,9 +85,10 @@ class OpenAiCompatTtsProvider(
         if (!EndpointUrlPolicy.isAllowed(base)) {
             return OnlineOutcome.Failed(OnlineFailureKind.HTTP, "invalid_url", "接口地址必须以 https:// 开头")
         }
+        val streamClient = OnlineCallRunner.clientForTimeout(client, request.timeoutMs)
         return try {
             val req = buildSpeechHttpRequest(base, request, text, speed)
-            val call = client.newCall(req)
+            val call = streamClient.newCall(req)
             callRef.set(call)
             if (isCancelled()) {
                 call.cancel()
@@ -130,12 +97,7 @@ class OpenAiCompatTtsProvider(
             call.execute().use { resp ->
                 if (!resp.isSuccessful) {
                     val raw = resp.body?.string().orEmpty()
-                    val failKind = when (resp.code) {
-                        401, 403 -> OnlineFailureKind.AUTH
-                        429 -> OnlineFailureKind.RATE_LIMIT
-                        else -> OnlineFailureKind.HTTP
-                    }
-                    return OnlineOutcome.Failed(failKind, "http_${resp.code}", ErrorSanitizer.sanitize("HTTP ${resp.code}: $raw"))
+                    return OnlineCallRunner.httpFailure(resp.code, raw)
                 }
                 val body = resp.body
                     ?: return OnlineOutcome.Failed(OnlineFailureKind.NETWORK, "empty_body", "响应无内容")
@@ -146,7 +108,10 @@ class OpenAiCompatTtsProvider(
                         formatHint = request.responseFormat,
                         contentType = resp.header("Content-Type"),
                         defaultSampleRate = defaultSr,
-                        onChunk = onChunk,
+                        onChunk = { chunk ->
+                            if (chunk.pcm16Mono.isNotEmpty()) firstByteSeen.set(true)
+                            onChunk(chunk)
+                        },
                         isCancelled = isCancelled,
                     )
                 }
@@ -166,16 +131,7 @@ class OpenAiCompatTtsProvider(
                 }
             }
         } catch (t: Throwable) {
-            if (isCancelled() || callRef.get()?.isCanceled() == true) {
-                OnlineOutcome.Cancelled
-            } else {
-                val reason = if (t is InterruptedIOException) "timeout" else "network"
-                OnlineOutcome.Failed(
-                    OnlineFailureKind.NETWORK,
-                    reason,
-                    ErrorSanitizer.sanitize(t.message ?: t.javaClass.simpleName),
-                )
-            }
+            OnlineCallRunner.throwableFailure(t, isCancelled, callRef.get())
         }
     }
 
@@ -204,7 +160,6 @@ class OpenAiCompatTtsProvider(
     }
 
     private companion object {
-        private const val CANCEL_TICK_MS = 50L
-        private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
+        val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
     }
 }

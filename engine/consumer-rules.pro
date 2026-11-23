@@ -1,4 +1,5 @@
--keep class com.k2fsa.sherpa.onnx.** { *; }
 -keep class com.tencent.mmkv.** { *; }
+-keep class com.kermond.ebook2tts.engine.LocalTextToSpeechService { *; }
+-keep class com.kermond.ebook2tts.engine.SystemTtsBackend { *; }
 -keep class * implements android.os.Parcelable { public static final ** CREATOR; }
 -keepclasseswithmembernames class * { native <methods>; }

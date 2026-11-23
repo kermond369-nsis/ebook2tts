@@ -21,10 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * 在线后端生产代码 [OnlineBackend] 验证（OkHttp 官方 MockWebServer，不触真网）：
  * SSE 流式解析 / PCM16 帧对齐 / 载荷协议（messages+audio+stream）/ 401/429/500 分类 /
- * 读超时 → 可读摘要（截断 200 字）/ 取消即断连接 / GET /models 密钥校验。
- *
- * 「在线失败 → 回落决策」链路：本类的 Failed(kind) 输出直接喂 [OnlineFallback.decide]
- * （矩阵见 [OnlineRouterTest]）。
+ * 读超时与弱网首包硬超时看门狗 → TIMEOUT / 取消即断连接 / GET /models 密钥校验。
  */
 class OnlineBackendTest {
 
@@ -130,8 +127,6 @@ class OnlineBackendTest {
         assertEquals("http_401", failed.reason)
         assertTrue(failed.summary.contains("401"))
         assertTrue("摘要须截断 200 字（实测 ${failed.summary.length}）", failed.summary.length <= 200)
-        // 401 且尚无音频 → 该请求整段回落本地
-        assertEquals(FallbackAction.RESTART_LOCAL, OnlineFallback.decide(false, 24000, OnlineSettings_SR))
     }
 
     @Test
@@ -155,9 +150,33 @@ class OnlineBackendTest {
     fun readTimeout_classifiedNetworkTimeout() {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
         val failed = backend.synthesize(request(), "x", { true }, { false }) as OnlineOutcome.Failed
-        assertEquals(OnlineFailureKind.NETWORK, failed.kind)
+        assertEquals(OnlineFailureKind.TIMEOUT, failed.kind)
         assertEquals("timeout", failed.reason)
         assertTrue(failed.summary.length <= 200)
+    }
+
+    @Test
+    fun weakNetworkFirstByteWatchdog_abortsSlowStreamWithinConfiguredTimeout() {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeadersDelay(6, TimeUnit.SECONDS)
+                .setBody(sse(audioLine(ByteArray(480) { 1 }))),
+        )
+        val slowClient = testClient(readTimeoutMs = 30_000)
+        val slowBackend = OnlineBackend(client = slowClient)
+        val t0 = System.nanoTime()
+        val outcome = slowBackend.synthesize(
+            request().copy(timeoutMs = 2_000),
+            "弱网超时测试",
+            { true },
+            { false },
+        )
+        val elapsedMs = (System.nanoTime() - t0) / 1_000_000
+        val failed = outcome as OnlineOutcome.Failed
+        assertEquals(OnlineFailureKind.TIMEOUT, failed.kind)
+        assertEquals("timeout", failed.reason)
+        assertTrue("首包看门狗应按 2s 触发（实测 ${elapsedMs}ms）", elapsedMs in 1_800..4_500)
     }
 
     @Test

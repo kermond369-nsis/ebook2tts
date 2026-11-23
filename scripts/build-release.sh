@@ -117,5 +117,19 @@ if mode == "arm64":
 else:
     assert "arm64-v8a" in nat[0] and "armeabi-v7a" in nat[0] and "x86_64" in nat[0], f"Universal ABI 校验失败: {nat[0]}"
     assert re.search(r"'x86'", nat[0]) is None, f"Universal 不应包含 32 位 x86: {nat[0]}"
+
+dex_bytes = b""
+so_names = []
+with zipfile.ZipFile(out) as zout:
+    for it in zout.infolist():
+        if it.filename.startswith("classes") and it.filename.endswith(".dex"):
+            dex_bytes += zout.read(it.filename)
+        elif it.filename.endswith(".so"):
+            so_names.append(it.filename)
+assert b"Lcom/kermond/ebook2tts/engine/LocalTextToSpeechService;" in dex_bytes, "R8 丢失 LocalTextToSpeechService"
+assert b"Lcom/kermond/ebook2tts/engine/SystemTtsBackend;" in dex_bytes, "R8 丢失 SystemTtsBackend"
+assert b"Lcom/k2fsa/sherpa/" not in dex_bytes, "APK DEX 不得包含 Sherpa 残留类"
+assert not any("sherpa" in n.lower() or "onnxruntime" in n.lower() for n in so_names), f"APK 不得包含 Sherpa/ONNX 原生库: {so_names}"
+print("[核验] R8 DEX 与去本地模型守卫通过: LocalTextToSpeechService + SystemTtsBackend（零 Sherpa/ONNX）")
 print(f"[完成] mode={mode} out={out} bytes={os.path.getsize(out)}")
 PY

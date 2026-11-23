@@ -42,8 +42,16 @@ object OnlineSettings {
     /** 该模型是否为定制音色模型（协议分支依据：含 voicedesign 即 user 消息走音色描述） */
     fun isVoiceDesignModel(model: String): Boolean = model.contains("voicedesign")
 
-    /** MiMo 流式 PCM16 单声道采样率（协议常量，24kHz；与 Kokoro int8 一致） */
+    /** MiMo 流式 PCM16 单声道采样率（协议常量，24kHz） */
     const val SAMPLE_RATE = 24000
+
+    /** 弱网首包超时默认值与合法区间（毫秒） */
+    const val DEFAULT_ONLINE_TIMEOUT_MS = 6_000
+    const val MIN_ONLINE_TIMEOUT_MS = 2_000
+    const val MAX_ONLINE_TIMEOUT_MS = 30_000
+
+    fun clampTimeoutMs(ms: Int): Int =
+        if (ms <= 0) DEFAULT_ONLINE_TIMEOUT_MS else ms.coerceIn(MIN_ONLINE_TIMEOUT_MS, MAX_ONLINE_TIMEOUT_MS)
 
     const val KEY_PREFIX_BILLING = "sk-"
     const val KEY_PREFIX_PLAN = "tp-"

@@ -77,7 +77,7 @@ object PcmChunker {
         var i = 0
         while (i < samples.size) {
             val s = samples[i]
-            val v = (s * 32767f).toInt().coerceIn(-32768, 32767)
+            val v = if (!s.isFinite()) 0 else (s * 32767f).toInt().coerceIn(-32768, 32767)
             out[i * 2] = (v and 0xff).toByte()
             out[i * 2 + 1] = ((v shr 8) and 0xff).toByte()
             i++

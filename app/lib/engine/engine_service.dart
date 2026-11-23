@@ -1,134 +1,72 @@
 /// 引擎访问协议（App 侧与引擎侧的接口边界）。
-///
-/// 严格对应《P3-APP实施规格》§4 的 `EngineService` 协议——App 侧不得发明新接口；
-/// 本文件为唯一权威签名，Mock 实现（`mock_engine_service.dart`）与后续 Pigeon
-/// 真机实现必须保持同一签名。
-///
-/// 约定：诊断页展示的「最近一次性能数据」由 [EngineService.events] 中
-/// `type == 'status'` 事件的 `data` 承载（键：`firstChunkMs` 首块耗时毫秒、
-/// `totalMs` 总耗时毫秒、`droppedChunks` 丢块数、`perfAt` 记录时间）；
-/// 事件流在订阅时会先补发一份当前状态快照，随后为增量事件。
 library;
-
-/// 引擎状态。
-enum EngineState { noModel, loading, ready, reloading, error }
 
 /// 在线朗读状态。
 enum OnlineState { off, ready, noKey, error }
 
-/// 引擎总体状态。
-class EngineStatus {
-  const EngineStatus({
-    required this.state,
-    this.modelId,
-    this.sampleRate = 0,
-    this.speakers = 0,
-    this.online = OnlineState.off,
+/// 设备上已安装的系统或第三方 TTS 引擎条目（用于弱网回退选择）。
+class SystemTtsEngine {
+  const SystemTtsEngine({
+    required this.packageName,
+    required this.label,
+    required this.isSystemApp,
   });
 
-  final EngineState state;
-  final String? modelId;
-  final int sampleRate;
-  final int speakers;
-  final OnlineState online;
-
-  /// 规格 §4 中 `online` 与 `onlineState` 并列出现（同一含义），此处以别名兼容。
-  OnlineState get onlineState => online;
+  final String packageName;
+  final String label;
+  final bool isSystemApp;
 }
 
-/// 模型条目。
-class ModelInfo {
-  const ModelInfo({
+/// 引擎总体状态（纯在线 + 系统自带 TTS 兜底）。
+class EngineStatus {
+  const EngineStatus({
+    this.online = OnlineState.off,
+    this.providerKind = 'mimo',
+    this.onlineLastError = '',
+    this.fallbackEnginePackage = '',
+    this.fallbackEngineLabel = '未检测到其他系统 TTS',
+    this.hasFallbackEngine = false,
+    this.lastFallbackEngine = '',
+    this.lastFallbackReason = '',
+    this.lastFallbackAt = 0,
+  });
+
+  final OnlineState online;
+  final String providerKind;
+  final String onlineLastError;
+  final String fallbackEnginePackage;
+  final String fallbackEngineLabel;
+  final bool hasFallbackEngine;
+  final String lastFallbackEngine;
+  final String lastFallbackReason;
+  final int lastFallbackAt;
+}
+
+/// 小米 MiMo 官方预置音色条目。
+class MimoVoicePreset {
+  const MimoVoicePreset({
     required this.id,
     required this.label,
-    required this.note,
-    required this.downloadBytes,
-    required this.extractedBytes,
-    required this.installed,
-    required this.active,
-    required this.recommended,
+    required this.lang,
   });
 
   final String id;
   final String label;
-  final String note;
-  final int downloadBytes;
-  final int extractedBytes;
-  final bool installed;
-  final bool active;
-  final bool recommended;
-
-  ModelInfo copyWith({
-    String? id,
-    String? label,
-    String? note,
-    int? downloadBytes,
-    int? extractedBytes,
-    bool? installed,
-    bool? active,
-    bool? recommended,
-  }) {
-    return ModelInfo(
-      id: id ?? this.id,
-      label: label ?? this.label,
-      note: note ?? this.note,
-      downloadBytes: downloadBytes ?? this.downloadBytes,
-      extractedBytes: extractedBytes ?? this.extractedBytes,
-      installed: installed ?? this.installed,
-      active: active ?? this.active,
-      recommended: recommended ?? this.recommended,
-    );
-  }
-}
-
-/// 下载进度。
-///
-/// [phase] 取值：`idle`/`probe`/`download`/`verify`/`extract`/`promote`/`done`/`error`。
-class DownloadProgress {
-  const DownloadProgress({
-    required this.modelId,
-    required this.received,
-    required this.total,
-    required this.phase,
-  });
-
-  final String modelId;
-  final int received;
-  final int total;
-  final String phase;
-
-  double get fraction => total <= 0 ? 0 : (received / total).clamp(0.0, 1.0);
-}
-
-/// 音色条目。
-class VoiceInfo {
-  const VoiceInfo({
-    required this.id,
-    required this.name,
-    required this.lang,
-    required this.isNarrator,
-  });
-
-  final String id;
-  final String name;
-
-  /// 语言标记：`zh` 中文优先、`en` 英文折叠展示。
   final String lang;
-
-  /// 是否为当前旁白。
-  final bool isNarrator;
-
-  VoiceInfo copyWith({String? id, String? name, String? lang, bool? isNarrator}) {
-    return VoiceInfo(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      lang: lang ?? this.lang,
-      isNarrator: isNarrator ?? this.isNarrator,
-    );
-  }
 }
 
-/// 应用配置。
+const List<MimoVoicePreset> kMimoVoicePresets = <MimoVoicePreset>[
+  MimoVoicePreset(id: '白桦', label: '白桦 · 中文男声', lang: 'zh'),
+  MimoVoicePreset(id: '苏打', label: '苏打 · 中文男声', lang: 'zh'),
+  MimoVoicePreset(id: '冰糖', label: '冰糖 · 中文女声', lang: 'zh'),
+  MimoVoicePreset(id: '茉莉', label: '茉莉 · 中文女声', lang: 'zh'),
+  MimoVoicePreset(id: 'Mia', label: 'Mia · 英文女声', lang: 'en'),
+  MimoVoicePreset(id: 'Chloe', label: 'Chloe · 英文女声', lang: 'en'),
+  MimoVoicePreset(id: 'Milo', label: 'Milo · 英文男声', lang: 'en'),
+  MimoVoicePreset(id: 'Dean', label: 'Dean · 英文男声', lang: 'en'),
+];
+
+/// 应用配置（单一模式：在线多引擎 + 弱网超时自动回退系统 TTS）。
 class AppConfig {
   const AppConfig({
     required this.speed,
@@ -138,14 +76,20 @@ class AppConfig {
     required this.apiKeyMasked,
     required this.baseUrl,
     required this.allowMobileData,
-    required this.customMirror,
     this.roleVoiceEnabled = true,
     this.roleCount = 0,
     this.roleRefineCount = 0,
+    this.providerKind = 'mimo',
+    this.model = 'mimo-v2.5-tts',
+    this.voice = '白桦',
+    this.responseFormat = 'pcm',
+    this.sampleRate = 24000,
+    this.customHeaders = '',
+    this.customBodyTemplate = '',
+    this.timeoutMs = 6000,
+    this.fallbackTtsEngine = '',
   });
 
-  /// 默认值：在线总开关关、数据流量关、按量计费、未同意 Token Plan（规格 §3/§6）。
-  /// 「AI 角色音色」默认开（RQ-509；仅在线开启时生效）。
   factory AppConfig.initial() => const AppConfig(
         speed: 1.0,
         onlineEnabled: false,
@@ -154,8 +98,14 @@ class AppConfig {
         apiKeyMasked: '',
         baseUrl: baseUrlBilling,
         allowMobileData: false,
-        customMirror: '',
         roleVoiceEnabled: true,
+        providerKind: 'mimo',
+        model: 'mimo-v2.5-tts',
+        voice: '白桦',
+        responseFormat: 'pcm',
+        sampleRate: 24000,
+        timeoutMs: 6000,
+        fallbackTtsEngine: '',
       );
 
   final double speed;
@@ -169,21 +119,28 @@ class AppConfig {
   final String apiKeyMasked;
   final String baseUrl;
   final bool allowMobileData;
-  final String customMirror;
 
-  /// 「AI 角色音色」开关（RQ-507：在线时按角色用 voicedesign 造可区分音色）。
+  /// 「AI 角色音色」开关（MiMo 专属）。
   final bool roleVoiceEnabled;
-
-  /// 已建档角色数（诊断展示）。
   final int roleCount;
-
-  /// 角色精标成功次数（文本用量粗估，诊断展示）。
   final int roleRefineCount;
 
-  /// 两类密钥与接口域名相互绑定，不可混用（见《免责声明》第三条）。
-  static const String baseUrlBilling = 'https://api.xiaomimimo.com/v1';
+  /// 在线引擎协议：`mimo` / `openai` / `custom_http`。
+  final String providerKind;
+  final String model;
+  final String voice;
+  final String responseFormat;
+  final int sampleRate;
+  final String customHeaders;
+  final String customBodyTemplate;
 
-  /// Token Plan（中国集群）接口域名。
+  /// 弱网首包超时阈值（毫秒，默认 6000）。
+  final int timeoutMs;
+
+  /// 用户指定的兜底系统 TTS 引擎包名（空串 = 自动选择系统内置引擎）。
+  final String fallbackTtsEngine;
+
+  static const String baseUrlBilling = 'https://api.xiaomimimo.com/v1';
   static const String baseUrlPlan = 'https://token-plan-cn.xiaomimimo.com/v1';
 
   static String baseUrlFor(String keyKind) =>
@@ -197,10 +154,18 @@ class AppConfig {
     String? apiKeyMasked,
     String? baseUrl,
     bool? allowMobileData,
-    String? customMirror,
     bool? roleVoiceEnabled,
     int? roleCount,
     int? roleRefineCount,
+    String? providerKind,
+    String? model,
+    String? voice,
+    String? responseFormat,
+    int? sampleRate,
+    String? customHeaders,
+    String? customBodyTemplate,
+    int? timeoutMs,
+    String? fallbackTtsEngine,
   }) {
     return AppConfig(
       speed: speed ?? this.speed,
@@ -210,15 +175,23 @@ class AppConfig {
       apiKeyMasked: apiKeyMasked ?? this.apiKeyMasked,
       baseUrl: baseUrl ?? this.baseUrl,
       allowMobileData: allowMobileData ?? this.allowMobileData,
-      customMirror: customMirror ?? this.customMirror,
       roleVoiceEnabled: roleVoiceEnabled ?? this.roleVoiceEnabled,
       roleCount: roleCount ?? this.roleCount,
       roleRefineCount: roleRefineCount ?? this.roleRefineCount,
+      providerKind: providerKind ?? this.providerKind,
+      model: model ?? this.model,
+      voice: voice ?? this.voice,
+      responseFormat: responseFormat ?? this.responseFormat,
+      sampleRate: sampleRate ?? this.sampleRate,
+      customHeaders: customHeaders ?? this.customHeaders,
+      customBodyTemplate: customBodyTemplate ?? this.customBodyTemplate,
+      timeoutMs: timeoutMs ?? this.timeoutMs,
+      fallbackTtsEngine: fallbackTtsEngine ?? this.fallbackTtsEngine,
     );
   }
 }
 
-/// 引擎事件。`type`：`status`/`progress`/`model`/`error`。
+/// 引擎事件。
 class EngineEvent {
   const EngineEvent(this.type, this.data);
 
@@ -226,28 +199,9 @@ class EngineEvent {
   final Map<String, dynamic> data;
 }
 
-/// 引擎服务协议（规格 §4 唯一权威定义）。
+/// 引擎服务协议。
 abstract class EngineService {
   Future<EngineStatus> status();
-
-  Future<List<ModelInfo>> models();
-
-  Future<void> startDownload(String modelId);
-
-  Future<void> cancelDownload();
-
-  Future<void> deleteModel(String modelId);
-
-  Future<void> setActiveModel(String modelId);
-
-  Future<List<VoiceInfo>> voices();
-
-  Future<void> setNarratorVoice(String voiceId);
-
-  /// 试听指定音色——**不改变全局旁白**。
-  Future<void> preview({required String text, required String voiceId});
-
-  Future<void> stopPreview();
 
   Future<AppConfig> config();
 
@@ -258,20 +212,36 @@ abstract class EngineService {
     String? keyKind,
     String? apiKey,
     String? baseUrl,
-    String? customMirror,
     bool? tokenPlanAccepted,
     bool? roleVoiceEnabled,
+    String? providerKind,
+    String? model,
+    String? voice,
+    String? responseFormat,
+    int? sampleRate,
+    String? customHeaders,
+    String? customBodyTemplate,
+    int? timeoutMs,
+    String? fallbackTtsEngine,
   });
+
+  /// 校验当前在线配置/密钥：返回 `null` 表示通过，否则返回脱敏错误摘要。
+  Future<String?> validateOnline({
+    String? keyKind,
+    String? apiKey,
+  });
+
+  /// 列出设备上可用的非本应用 TTS 引擎（用于弱网回退选择）。
+  Future<List<SystemTtsEngine>> systemTtsEngines();
+
+  /// 试听朗读（不改变全局默认音色）。
+  Future<void> preview({required String text, String voiceId = ''});
+
+  Future<void> stopPreview();
 
   Future<List<String>> recentLogs();
 
   Future<void> clearPerfCounters();
 
   Stream<EngineEvent> events();
-
-  /// 校验密钥：返回 `null` 表示通过，否则返回平台方原始错误摘要。
-  Future<String?> validateKey({
-    required String keyKind,
-    required String apiKey,
-  });
 }

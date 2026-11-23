@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../engine/engine_service.dart';
-import '../platform/system_bridge.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/common.dart';
@@ -16,7 +15,7 @@ const String _multiRoleSample =
     '苏岑笑道：“我听着呢。”\n'
     '吴伯提醒道：“天不早了，明天还要早起。”';
 
-/// 示例朗读工作室：支持随时微调语速、切换默认/多角色文本、即时试听并反馈真实状态。
+/// 示例朗读页：即时试播当前在线引擎（弱网或未开在线时自动无缝回退系统 TTS）。
 class SamplePage extends ConsumerStatefulWidget {
   const SamplePage({super.key});
 
@@ -43,43 +42,29 @@ class _SamplePageState extends ConsumerState<SamplePage> {
 
   @override
   Widget build(BuildContext context) {
-    final route = ref.watch(routeModeProvider).value ??
-        const RouteModeState(mode: 'prefer_online', chosen: true);
-    final workMode = route.workMode;
-    final voices = ref.watch(voicesProvider).value ?? const <VoiceInfo>[];
     final config = ref.watch(configProvider).value;
     final status = ref.watch(statusProvider).value;
     final preview = ref.watch(previewProvider);
-    final meta = ref.watch(runtimeMetaProvider).value ?? const RuntimeMeta();
 
-    final narrator = voices.where((v) => v.isNarrator).toList();
-    final narratorName = narrator.isEmpty ? '默认旁白' : narrator.first.name;
     final currentSpeed = _pendingSpeed ?? config?.speed ?? 1.0;
     final playing = preview.playing;
 
-    final providerLabel = switch (meta.providerKind) {
+    final providerLabel = switch (config?.providerKind) {
       'openai' => 'OpenAI 兼容',
       'custom_http' => '自定义 HTTP',
       _ => '小米 MiMo',
     };
 
-    final backendSummary = switch (workMode) {
-      AppWorkMode.onlineOnly =>
-        status?.online == OnlineState.ready
-            ? '纯在线 · $providerLabel'
-            : '纯在线（${onlineStateLabel(status?.online ?? OnlineState.off)}）',
-      AppWorkMode.localOnly =>
-        '纯本地 · ${status?.modelId ?? '未装模型'}（$narratorName）',
-      AppWorkMode.hybrid => route.prefersOnline
-          ? '混合 · 在线优先（$providerLabel / 备用本地）'
-          : '混合 · 本地优先（$narratorName / 备用在线）',
-    };
+    final onlineSummary = status?.online == OnlineState.ready
+        ? '$providerLabel · ${config?.voice.isNotEmpty == true ? config!.voice : '默认音色'}'
+        : '在线未就绪（${onlineStateLabel(status?.online ?? OnlineState.off)}）';
+    final fallbackSummary = status?.fallbackEngineLabel ?? '未检测到其他系统 TTS';
 
     return PageBody(
       children: [
         SectionCard(
           title: '要朗读的文本',
-          subtitle: '可直接编辑或粘贴小说片段；点击「开始朗读」按当前工作模式试播。',
+          subtitle: '可直接编辑或粘贴小说片段；弱网超时或在线未就绪时自动回退系统自带 TTS。',
           trailing: Wrap(
             spacing: 6,
             children: [
@@ -118,7 +103,7 @@ class _SamplePageState extends ConsumerState<SamplePage> {
                   ),
                   const Spacer(),
                   Text(
-                    playing ? '播放中' : '就绪',
+                    playing ? previewStageLabel(preview.stage) : '就绪',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -130,9 +115,8 @@ class _SamplePageState extends ConsumerState<SamplePage> {
             ],
           ),
         ),
-
         SectionCard(
-          title: '朗读参数与即时微调',
+          title: '朗读链路与即时语速',
           trailing: StatusChip(
             label: '${currentSpeed.toStringAsFixed(1)}×',
             color: Tokens.accent,
@@ -141,16 +125,17 @@ class _SamplePageState extends ConsumerState<SamplePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               KeyValueRow(
-                label: '当前链路',
-                value: backendSummary,
-                valueColor: Tokens.cloud,
+                label: '主在线链路',
+                value: onlineSummary,
+                valueColor: status?.online == OnlineState.ready
+                    ? Tokens.cloud
+                    : Tokens.textDim,
               ),
-              if (workMode != AppWorkMode.onlineOnly)
-                KeyValueRow(
-                  label: '本地旁白音色',
-                  value: narratorName,
-                  valueColor: Tokens.accent,
-                ),
+              KeyValueRow(
+                label: '弱网兜底',
+                value: fallbackSummary,
+                valueColor: Tokens.accent,
+              ),
               const SizedBox(height: 8),
               Slider(
                 value: currentSpeed.clamp(0.5, 2.0),
@@ -170,23 +155,27 @@ class _SamplePageState extends ConsumerState<SamplePage> {
             ],
           ),
         ),
-
-        if (preview.lastError != null && preview.lastError!.isNotEmpty) ...[
+        if (!playing &&
+            preview.lastError != null &&
+            preview.lastError!.isNotEmpty) ...[
           InfoBanner(
             title: '上次试听未成功',
             body: preview.lastError!,
             color: Tokens.danger,
             icon: Icons.error_outline_rounded,
+            action: TextButton(
+              onPressed: () => ref.read(previewProvider.notifier).clearError(),
+              child: const Text('知道了'),
+            ),
           ),
           const SizedBox(height: 12),
         ],
-
         Row(
           children: [
             Expanded(
               flex: 2,
               child: PrimaryButton(
-                label: playing ? '正在朗读…' : '开始朗读',
+                label: playing ? previewStageLabel(preview.stage) : '开始朗读',
                 icon: Icons.play_arrow_rounded,
                 onPressed: playing
                     ? null
@@ -195,10 +184,9 @@ class _SamplePageState extends ConsumerState<SamplePage> {
                           showAppSnack(context, '请先输入要朗读的文字', danger: true);
                           return;
                         }
-                        await ref.read(previewProvider.notifier).preview(
-                              text: _text.text,
-                              voiceId: '',
-                            );
+                        await ref
+                            .read(previewProvider.notifier)
+                            .preview(text: _text.text);
                       },
               ),
             ),

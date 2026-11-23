@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../engine/engine_service.dart';
 import '../platform/system_bridge.dart';
 import '../state/providers.dart';
 import '../theme/tokens.dart';
 import '../widgets/common.dart';
 import 'diagnostics_page.dart';
 import 'disclaimer_page.dart';
-import 'mode_setup_page.dart';
 
-/// 全局设置页：精简清爽，不再堆砌在线鉴权/API 参数（已移至「在线」专属标签页）。
+/// 全局设置页：语速、弱网超时阈值、系统 TTS 兜底引擎与网络流量策略。
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
 
@@ -23,9 +23,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final config = ref.watch(configProvider).value;
-    final route = ref.watch(routeModeProvider).value ??
-        const RouteModeState(mode: 'prefer_online', chosen: true);
-    final workMode = route.workMode;
+    final status = ref.watch(statusProvider).value;
+    final enginesAsync = ref.watch(systemTtsEnginesProvider);
 
     if (config == null) {
       return const PageBody(
@@ -43,52 +42,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
 
     final speed = _speedDraft ?? config.speed;
+    final engines = enginesAsync.value ?? const <SystemTtsEngine>[];
+    final timeoutSec = (config.timeoutMs / 1000).round();
 
     return PageBody(
       children: [
-        // ① 工作模式
-        SectionCard(
-          title: '朗读模式',
-          subtitle: '决定顶部与底部界面展示的页面范围，以及网络与本地的协作策略。',
-          trailing: StatusChip(
-            label: routeModeLabel(route.mode),
-            color: switch (workMode) {
-              AppWorkMode.onlineOnly => Tokens.cloud,
-              AppWorkMode.localOnly => Tokens.accent,
-              AppWorkMode.hybrid => Tokens.hybrid,
-            },
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (workMode == AppWorkMode.hybrid) ...[
-                SegmentedButton<String>(
-                  showSelectedIcon: false,
-                  segments: const [
-                    ButtonSegment(value: 'prefer_online', label: Text('在线优先')),
-                    ButtonSegment(value: 'prefer_local', label: Text('本地优先')),
-                  ],
-                  selected: <String>{
-                    route.prefersOnline ? 'prefer_online' : 'prefer_local',
-                  },
-                  onSelectionChanged: (s) =>
-                      ref.read(routeModeProvider.notifier).setMode(s.first),
-                ),
-                const SizedBox(height: 12),
-              ],
-              SecondaryButton(
-                label: '切换工作模式（纯在线 / 纯本地 / 混合）',
-                icon: Icons.swap_horiz_rounded,
-                onPressed: () => _openModeSetup(context, route.mode),
-              ),
-            ],
-          ),
-        ),
-
-        // ② 全局语速
+        // ① 全局语速
         SectionCard(
           title: '全局语速',
-          subtitle: '同时作用于本机合成与在线合成；拖动松手即自动保存。',
+          subtitle: '同时作用于在线合成与系统 TTS 兜底；拖动松手即自动保存。',
           trailing: StatusChip(label: '${speed.toStringAsFixed(1)} 倍'),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -134,14 +96,105 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ),
         ),
 
+        // ② 弱网回退与系统 TTS 兜底
+        SectionCard(
+          title: '弱网回退与系统 TTS 兜底',
+          subtitle: '在线合成超时、断网或服务不可达时，自动切换为设备自带系统 TTS 引擎（已硬性排除本应用防递归）。',
+          trailing: StatusChip(
+            label: '$timeoutSec 秒超时',
+            color: Tokens.cloud,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '弱网首包超时阈值',
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: Tokens.text,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  for (final ms in const [4000, 6000, 8000, 12000])
+                    ChoiceChip(
+                      label: Text('${ms ~/ 1000} 秒'),
+                      selected: config.timeoutMs == ms,
+                      onSelected: (_) async {
+                        await ref
+                            .read(configProvider.notifier)
+                            .save(timeoutMs: ms);
+                        if (context.mounted) {
+                          showAppSnack(context, '弱网超时阈值已设为 ${ms ~/ 1000} 秒');
+                        }
+                      },
+                    ),
+                ],
+              ),
+              const Divider(height: 22),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      '兜底系统 TTS 引擎',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w600,
+                        color: Tokens.text,
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => ref.invalidate(systemTtsEnginesProvider),
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('刷新'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              _EngineRadioRow(
+                selected: config.fallbackTtsEngine.isEmpty,
+                title: '自动选择系统内置引擎（推荐）',
+                subtitle: status != null && status.hasFallbackEngine
+                    ? '当前自动选定：${status.fallbackEngineLabel}'
+                    : '按手机厂商系统内置语音服务优先级自动匹配',
+                onTap: () => ref
+                    .read(configProvider.notifier)
+                    .save(fallbackTtsEngine: ''),
+              ),
+              if (engines.isEmpty && !enginesAsync.isLoading)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    '当前设备未探测到其他可用系统 TTS 引擎，请在系统设置确认已启用系统语音服务。',
+                    style: TextStyle(fontSize: 12, color: Tokens.danger),
+                  ),
+                )
+              else
+                for (final engine in engines) ...[
+                  const SizedBox(height: 8),
+                  _EngineRadioRow(
+                    selected: config.fallbackTtsEngine == engine.packageName,
+                    title: engine.label,
+                    subtitle: engine.packageName,
+                    badge: engine.isSystemApp ? '系统内置' : null,
+                    onTap: () => ref
+                        .read(configProvider.notifier)
+                        .save(fallbackTtsEngine: engine.packageName),
+                  ),
+                ],
+            ],
+          ),
+        ),
+
         // ③ 网络与流量策略
         SectionCard(
           title: '网络与流量策略',
-          subtitle: workMode == AppWorkMode.onlineOnly
-              ? '纯在线模式下，开启后可在蜂窝移动网络下继续在线合成。'
-              : workMode == AppWorkMode.localOnly
-                  ? '仅影响「模型管理」下载本地语音模型；离线朗读本身零流量消耗。'
-                  : '同时控制在线朗读与本地模型下载在蜂窝网络下的放行策略。',
+          subtitle: '关闭时，使用蜂窝移动网络将直接 0 毫秒回退系统自带 TTS，不消耗手机流量。',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -162,7 +215,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       if (context.mounted) {
                         showAppSnack(
                           context,
-                          v ? '已允许使用移动数据流量' : '已切换为仅在 Wi-Fi 下联网',
+                          v ? '已允许在移动数据下使用在线合成' : '已设为仅在 Wi-Fi 下联网',
                         );
                       }
                     },
@@ -172,8 +225,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               const SizedBox(height: 4),
               Text(
                 config.allowMobileData
-                    ? '已允许：移动数据网络下可正常在线朗读或下载模型。'
-                    : '已关闭（默认）：仅在无线网络（Wi-Fi）下执行在线合成与模型下载。',
+                    ? '已允许：移动数据网络下仍优先在线合成（弱网超时后自动回退系统 TTS）。'
+                    : '已关闭（默认）：仅在无线网络（Wi-Fi）下发起在线合成，蜂窝网络下自动使用系统 TTS。',
                 style: const TextStyle(
                   fontSize: 12.5,
                   color: Tokens.textDim,
@@ -191,25 +244,43 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             children: [
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.settings_voice_outlined, color: Tokens.accent),
-                title: const Text('系统「文字转语音」设置', style: TextStyle(fontSize: 14.5)),
+                leading: const Icon(
+                  Icons.settings_voice_outlined,
+                  color: Tokens.accent,
+                ),
+                title: const Text(
+                  '系统「文字转语音」设置',
+                  style: TextStyle(fontSize: 14.5),
+                ),
                 subtitle: const Text(
                   '将「书声」设为系统默认引擎供阅读软件调用',
                   style: TextStyle(fontSize: 12, color: Tokens.textDim),
                 ),
-                trailing: const Icon(Icons.chevron_right_rounded, color: Tokens.textDim),
+                trailing: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Tokens.textDim,
+                ),
                 onTap: _openSystemSettings,
               ),
               const Divider(height: 8),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.monitor_heart_outlined, color: Tokens.cloud),
-                title: const Text('运行诊断与日志', style: TextStyle(fontSize: 14.5)),
+                leading: const Icon(
+                  Icons.monitor_heart_outlined,
+                  color: Tokens.cloud,
+                ),
+                title: const Text(
+                  '运行诊断与日志',
+                  style: TextStyle(fontSize: 14.5),
+                ),
                 subtitle: const Text(
-                  '系统通道 A/B 对照测试、性能指标与实时运行日志',
+                  '系统通道对照测试、弱网回退记录与实时运行日志',
                   style: TextStyle(fontSize: 12, color: Tokens.textDim),
                 ),
-                trailing: const Icon(Icons.chevron_right_rounded, color: Tokens.textDim),
+                trailing: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Tokens.textDim,
+                ),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => Scaffold(
@@ -222,13 +293,22 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               const Divider(height: 8),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.gavel_outlined, color: Tokens.textDim),
-                title: const Text('在线朗读免责声明', style: TextStyle(fontSize: 14.5)),
+                leading: const Icon(
+                  Icons.gavel_outlined,
+                  color: Tokens.textDim,
+                ),
+                title: const Text(
+                  '在线朗读免责声明',
+                  style: TextStyle(fontSize: 14.5),
+                ),
                 subtitle: const Text(
                   '查看服务边界、密钥责任与隐私条款全文',
                   style: TextStyle(fontSize: 12, color: Tokens.textDim),
                 ),
-                trailing: const Icon(Icons.chevron_right_rounded, color: Tokens.textDim),
+                trailing: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Tokens.textDim,
+                ),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => const DisclaimerPage(),
@@ -246,27 +326,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               KeyValueRow(label: '应用名称', value: '书声（ebook2tts）'),
-              KeyValueRow(label: '版本', value: 'v1.0.1（通用 TTS 转接端）'),
+              KeyValueRow(label: '版本', value: 'v2.0.0（在线 + 系统兜底）'),
               KeyValueRow(label: '作者 / 许可', value: 'Kermond · MIT'),
             ],
           ),
         ),
       ],
-    );
-  }
-
-  Future<void> _openModeSetup(BuildContext context, String currentMode) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (routeCtx) => ModeSetupPage(
-          initialMode: currentMode,
-          isInitialSetup: false,
-          onDone: () async {
-            await ref.read(routeModeProvider.notifier).refresh();
-            if (routeCtx.mounted) Navigator.of(routeCtx).pop();
-          },
-        ),
-      ),
     );
   }
 
@@ -281,5 +346,89 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       default:
         showAppSnack(context, '未能打开系统设置，请手动前往「文字转语音」', danger: true);
     }
+  }
+}
+
+class _EngineRadioRow extends StatelessWidget {
+  const _EngineRadioRow({
+    required this.selected,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.badge,
+  });
+
+  final bool selected;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final String? badge;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(Tokens.radiusButton),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected
+              ? Tokens.accent.withValues(alpha: 0.08)
+              : Tokens.background,
+          borderRadius: BorderRadius.circular(Tokens.radiusButton),
+          border: Border.all(
+            color: selected ? Tokens.accent : Tokens.divider,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              size: 20,
+              color: selected ? Tokens.accent : Tokens.textDim,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: selected ? Tokens.accent : Tokens.text,
+                          ),
+                        ),
+                      ),
+                      if (badge != null) ...[
+                        const SizedBox(width: 6),
+                        StatusChip(label: badge!, color: Tokens.cloud),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Tokens.textDim,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
