@@ -231,25 +231,16 @@ void main() {
     await tester.tap(find.text('设置').last);
     await tester.pump(const Duration(milliseconds: 200));
     await tester.scrollUntilVisible(
-      find.text('本地推理性能').hitTestable(),
-      180,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.text('2 线程 · CPU'), findsOneWidget);
-
-    await tester.scrollUntilVisible(
-      find.widgetWithText(ChoiceChip, '4 线程').hitTestable(),
-      180,
+      find.text('允许使用移动数据流量'),
+      250,
       scrollable: find.byType(Scrollable).first,
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(ChoiceChip, '4 线程').hitTestable());
+    expect(find.text('本地推理性能'), findsOneWidget);
+    expect(find.text('2 线程 · CPU'), findsOneWidget);
+
+    await tester.tap(find.text('4 线程'));
     await tester.pump(const Duration(milliseconds: 200));
-    await tester.scrollUntilVisible(
-      find.text('4 线程 · CPU').hitTestable(),
-      -180,
-      scrollable: find.byType(Scrollable).first,
-    );
     expect(find.text('4 线程 · CPU'), findsOneWidget);
     await tester.pump(const Duration(seconds: 4));
   });
