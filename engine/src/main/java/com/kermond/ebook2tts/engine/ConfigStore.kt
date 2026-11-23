@@ -328,6 +328,17 @@ object ConfigStore {
         kv().encode("mirror.base", url.trim())
     }
 
+    /** 下载源下拉选择（auto / 内置镜像前缀 / direct / custom） */
+    fun mirrorSelection(): String =
+        kv().decodeString("mirror.selection", com.kermond.ebook2tts.core.MirrorResolver.MIRROR_AUTO)!!
+
+    fun setMirrorSelection(id: String) {
+        kv().encode(
+            "mirror.selection",
+            id.trim().ifEmpty { com.kermond.ebook2tts.core.MirrorResolver.MIRROR_AUTO },
+        )
+    }
+
     /** 清单上次远程拉取成功时间（毫秒；0 = 从未成功） */
     fun manifestFetchedAt(): Long = kv().decodeLong("manifest.fetchedAt", 0L)
     fun setManifestFetchedAt(at: Long) {

@@ -37,6 +37,34 @@ void _mockSystem({required String mode, String onlineLastError = ''}) {
           'lastPerf': <String, Object>{},
           'providerKind': 'mimo',
         };
+      case 'getMirrorConfig':
+        return <String, Object>{
+          'selected': 'auto',
+          'customUrl': '',
+          'presets': <Map<String, Object>>[
+            {'id': 'auto', 'label': '自动测速选最快（推荐）', 'prefix': ''},
+            {
+              'id': 'https://gh-proxy.com',
+              'label': 'gh-proxy.com（国内加速）',
+              'prefix': 'https://gh-proxy.com',
+            },
+            {'id': 'direct', 'label': 'GitHub 官方直连', 'prefix': ''},
+            {'id': 'custom', 'label': '自定义镜像 / 直链', 'prefix': ''},
+          ],
+        };
+      case 'setMirrorConfig':
+        return 'ok';
+      case 'probeMirrors':
+        return <Map<String, Object>>[
+          {
+            'id': 'https://gh-proxy.com',
+            'label': 'gh-proxy.com（国内加速）',
+            'ok': true,
+            'latencyMs': 120,
+            'speedKbps': 512.0,
+            'httpCode': 206,
+          },
+        ];
       default:
         return null;
     }
@@ -102,6 +130,9 @@ void main() {
     await tester.tap(find.text('模型').last);
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('端侧语音模型', skipOffstage: false), findsOneWidget);
+    expect(find.text('下载源与镜像测速', skipOffstage: false), findsOneWidget);
+    expect(find.text('一键测速', skipOffstage: false), findsOneWidget);
+    expect(find.text('从本地导入', skipOffstage: false), findsWidgets);
 
     await tester.tap(find.text('音色').last);
     await tester.pump(const Duration(milliseconds: 200));

@@ -46,7 +46,7 @@ class _VoicesPageState extends ConsumerState<VoicesPage> {
             children: [
               if (preview.playing) ...[
                 InfoBanner(
-                  title: '正在试听样音',
+                  title: previewStageLabel(preview.stage),
                   body: '${_nameOf(list, preview.voiceId)}（旁白未改动）',
                   color: Tokens.accent,
                   icon: Icons.graphic_eq_rounded,
@@ -55,6 +55,20 @@ class _VoicesPageState extends ConsumerState<VoicesPage> {
                         ref.read(previewProvider.notifier).stop(),
                     icon: const Icon(Icons.stop_rounded, size: 17),
                     label: const Text('停止试听'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ] else if (preview.lastError != null &&
+                  preview.lastError!.isNotEmpty) ...[
+                InfoBanner(
+                  title: '上次试听未成功',
+                  body: preview.lastError!,
+                  color: Tokens.danger,
+                  icon: Icons.error_outline_rounded,
+                  action: TextButton(
+                    onPressed: () =>
+                        ref.read(previewProvider.notifier).clearError(),
+                    child: const Text('知道了'),
                   ),
                 ),
                 const SizedBox(height: 10),

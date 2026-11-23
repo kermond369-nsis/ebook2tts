@@ -45,6 +45,12 @@ class PreviewService : Service() {
                         ConfigStore.notifyStatus(this@PreviewService, "PREVIEW_START|${voice.orEmpty()}")
                     }
 
+                    override fun onStage(stage: String) {
+                        if (activeGen.get() != gen) return
+                        Log.i(TAG, "PREVIEW|stage=$stage|gen=$gen")
+                        ConfigStore.notifyStatus(this@PreviewService, "PREVIEW_STAGE|$stage")
+                    }
+
                     override fun onProgress(percent: Int) {
                         if (activeGen.get() != gen) return
                         // 逐次打印太吵，仅在整十进度留痕

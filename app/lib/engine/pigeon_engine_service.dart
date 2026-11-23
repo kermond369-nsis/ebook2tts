@@ -48,6 +48,8 @@ class PigeonEngineService implements EngineService {
   Map<String, dynamic> _perf = <String, dynamic>{};
   bool _previewing = false;
   String? _previewVoiceId;
+  String? _previewStage;
+  String? _previewError;
   String? _narratorVoiceId;
 
   /// 试听请求（Flutter 发起）时间戳，用于实测首块/总耗时。
@@ -130,6 +132,8 @@ class PigeonEngineService implements EngineService {
     _previewRequestedAt = DateTime.now().millisecondsSinceEpoch;
     _previewFirstChunkMs = null;
     _previewVoiceId = voiceId;
+    _previewStage = 'loading_model';
+    _previewError = null;
     _previewing = true;
     _armPreviewWatchdog();
     _emitStatusSnapshot();
@@ -232,12 +236,39 @@ class PigeonEngineService implements EngineService {
       return;
     }
 
-    // 宿主 status 事件是部分字段（如 {modelId,state} / {narrator} / {phase}），
-    // 统一折算为**完整快照**后再发给界面（与 Mock 语义一致）。
+    // 宿主 status 事件是部分字段，统一合并进试听状态/性能后再发完整快照给界面。
     if (dto.type == 'status') {
       final narrator = data['narrator'];
       if (narrator is String && narrator.isNotEmpty) {
         _narratorVoiceId = narrator;
+      }
+      final perf = data['perf'];
+      if (perf is Map) {
+        _perf = Map<String, dynamic>.from(perf);
+      }
+      final previewing = data['previewing'];
+      final previewStage = data['previewStage'] as String?;
+      final previewErr = data['previewError'] as String?;
+      if (previewStage != null) {
+        _previewStage = previewStage;
+      }
+      if (previewErr != null) {
+        _previewError = previewErr;
+      }
+      if (previewing is bool) {
+        if (previewing) {
+          _previewing = true;
+          final pv = data['previewVoiceId'] as String?;
+          if (pv != null && pv.isNotEmpty) {
+            _previewVoiceId = pv;
+          }
+          if (previewErr == null) {
+            _previewError = null;
+          }
+          _armPreviewWatchdog();
+        } else {
+          _clearPreviewState();
+        }
       }
       _emitStatusSnapshot();
       return;
@@ -285,8 +316,9 @@ class PigeonEngineService implements EngineService {
 
   void _armPreviewWatchdog() {
     _previewWatchdog?.cancel();
-    _previewWatchdog = Timer(const Duration(seconds: 30), () {
+    _previewWatchdog = Timer(const Duration(seconds: 90), () {
       if (_previewing) {
+        _previewError ??= '试听等待超时，请检查本地模型是否完整安装或前往「诊断」查看日志';
         _clearPreviewState();
         _emitStatusSnapshot();
       }
@@ -298,6 +330,7 @@ class PigeonEngineService implements EngineService {
     _previewWatchdog = null;
     _previewing = false;
     _previewVoiceId = null;
+    _previewStage = null;
   }
 
   // ---------------------------------------------------------------- 快照
@@ -314,6 +347,8 @@ class PigeonEngineService implements EngineService {
         'perf': Map<String, dynamic>.from(_perf),
         'previewing': _previewing,
         'previewVoiceId': _previewVoiceId,
+        'previewStage': _previewStage,
+        'previewError': _previewError,
         'narratorVoiceId': _narratorVoiceId,
       };
     } catch (_) {
@@ -327,6 +362,8 @@ class PigeonEngineService implements EngineService {
         'perf': Map<String, dynamic>.from(_perf),
         'previewing': _previewing,
         'previewVoiceId': _previewVoiceId,
+        'previewStage': _previewStage,
+        'previewError': _previewError,
         'narratorVoiceId': _narratorVoiceId,
       };
     }

@@ -51,25 +51,22 @@ object ModelCatalog {
     const val DEFAULT_ID = "kokoro-int8"
 
     /** 内置兜底清单版本（与仓库根 manifest.json 由单测绑定一致；远程清单版本更高时以远程为准） */
-    const val BUILTIN_MANIFEST_VERSION: Long = 2026112201L
-    const val BUILTIN_MANIFEST_UPDATED_AT: String = "2026-11-22"
+    const val BUILTIN_MANIFEST_VERSION: Long = 2026112301L
+    const val BUILTIN_MANIFEST_UPDATED_AT: String = "2026-11-23"
     private const val GH =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models"
     private const val GH_VOCODER =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models"
 
     /**
-     * 国内可达的 GitHub 加速前缀（2026-09-14 逐源实测，替代此前失效的 hf-mirror）。
-     *
-     * 为什么弃用 hf-mirror：HuggingFace 上的 `csukuangfj/<模型>` 仓库存的是**解压后的文件**，
-     * 不提供 `.tar.bz2` 归档，按归档路径请求必然 404；本项目下载/解压流程依赖归档包，故不可用。
-     *
-     * 实测（国内直连、无代理、1MB Range 实拉）：ghfast.top 216–358 KB/s 且返回
-     * `Content-Range`（支持断点续传）；hk.gh-proxy.com 302 跳转后可用；ghproxy.net 约 28 KB/s（保底）。
+     * 国内可达的 GitHub 加速前缀（2026-11-23 逐源 Range 实测 206 可用；淘汰返回 403/500/超时的旧镜像）。
      */
-    private const val ACC_FAST = "https://ghfast.top"
-    private const val ACC_HK = "https://hk.gh-proxy.com"
-    private const val ACC_SLOW = "https://ghproxy.net"
+    const val ACC_PRIMARY = "https://gh-proxy.com"
+    const val ACC_ORG = "https://gh-proxy.org"
+    const val ACC_EDGEONE = "https://edgeone.gh-proxy.org"
+    const val ACC_CDN = "https://cdn.gh-proxy.org"
+
+    val MIRROR_PREFIXES: List<String> = listOf(ACC_PRIMARY, ACC_ORG, ACC_EDGEONE, ACC_CDN)
 
     /** 加速镜像 URL：[prefix]/<官方下载 URL> */
     private fun acc(prefix: String, archive: String): String = "$prefix/$GH/$archive"
@@ -81,14 +78,15 @@ object ModelCatalog {
             desc = "中英多音色，103 音色，体积与质量最平衡。首次引导默认下载。",
             archiveName = "kokoro-int8-multi-lang-v1_1.tar.bz2",
             primaryUrl = GH + "/kokoro-int8-multi-lang-v1_1.tar.bz2",
-            mirrorUrl = acc(ACC_FAST, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
+            mirrorUrl = acc(ACC_PRIMARY, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
             extraMirrors = listOf(
-                acc(ACC_HK, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
-                acc(ACC_SLOW, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
+                acc(ACC_ORG, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
+                acc(ACC_EDGEONE, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
+                acc(ACC_CDN, "kokoro-int8-multi-lang-v1_1.tar.bz2"),
             ),
-            downloadBytes = 147_031_220L,
+            downloadBytes = 147_052_523L,
             extractedBytes = 215_321_602L,
-            sha256 = "a1e94694776049035c4f2c6529f003aaece993c76aae9a78995831c3c4dcafc6",
+            sha256 = "259c9c8bc906d6078e4e0570421885dabb68b539c2f970fcbb890a58eeaf3e9c",
             files = ModelFiles(
                 kind = "kokoro",
                 modelName = "model.int8.onnx",
@@ -105,10 +103,11 @@ object ModelCatalog {
             desc = "中英混排 Flow-Matching 端侧模型（配 Vocos 声码器），语调更自然、速度显著快于 Kokoro。",
             archiveName = "matcha-icefall-zh-en.tar.bz2",
             primaryUrl = GH + "/matcha-icefall-zh-en.tar.bz2",
-            mirrorUrl = acc(ACC_FAST, "matcha-icefall-zh-en.tar.bz2"),
+            mirrorUrl = acc(ACC_PRIMARY, "matcha-icefall-zh-en.tar.bz2"),
             extraMirrors = listOf(
-                acc(ACC_HK, "matcha-icefall-zh-en.tar.bz2"),
-                acc(ACC_SLOW, "matcha-icefall-zh-en.tar.bz2"),
+                acc(ACC_ORG, "matcha-icefall-zh-en.tar.bz2"),
+                acc(ACC_EDGEONE, "matcha-icefall-zh-en.tar.bz2"),
+                acc(ACC_CDN, "matcha-icefall-zh-en.tar.bz2"),
             ),
             downloadBytes = 79_033_838L,
             extractedBytes = 95_346_626L,
@@ -132,10 +131,11 @@ object ModelCatalog {
             desc = "中文 5 音色，保底档（本地合成下限机型）默认推荐。实测约 119MB。",
             archiveName = "sherpa-onnx-vits-zh-ll.tar.bz2",
             primaryUrl = GH + "/sherpa-onnx-vits-zh-ll.tar.bz2",
-            mirrorUrl = acc(ACC_FAST, "sherpa-onnx-vits-zh-ll.tar.bz2"),
+            mirrorUrl = acc(ACC_PRIMARY, "sherpa-onnx-vits-zh-ll.tar.bz2"),
             extraMirrors = listOf(
-                acc(ACC_HK, "sherpa-onnx-vits-zh-ll.tar.bz2"),
-                acc(ACC_SLOW, "sherpa-onnx-vits-zh-ll.tar.bz2"),
+                acc(ACC_ORG, "sherpa-onnx-vits-zh-ll.tar.bz2"),
+                acc(ACC_EDGEONE, "sherpa-onnx-vits-zh-ll.tar.bz2"),
+                acc(ACC_CDN, "sherpa-onnx-vits-zh-ll.tar.bz2"),
             ),
             downloadBytes = 118_810_709L,
             extractedBytes = 135_457_418L,
@@ -154,14 +154,15 @@ object ModelCatalog {
             desc = "更高音质，约 365MB 下载 / 427MB 解压。",
             archiveName = "kokoro-multi-lang-v1_1.tar.bz2",
             primaryUrl = GH + "/kokoro-multi-lang-v1_1.tar.bz2",
-            mirrorUrl = acc(ACC_FAST, "kokoro-multi-lang-v1_1.tar.bz2"),
+            mirrorUrl = acc(ACC_PRIMARY, "kokoro-multi-lang-v1_1.tar.bz2"),
             extraMirrors = listOf(
-                acc(ACC_HK, "kokoro-multi-lang-v1_1.tar.bz2"),
-                acc(ACC_SLOW, "kokoro-multi-lang-v1_1.tar.bz2"),
+                acc(ACC_ORG, "kokoro-multi-lang-v1_1.tar.bz2"),
+                acc(ACC_EDGEONE, "kokoro-multi-lang-v1_1.tar.bz2"),
+                acc(ACC_CDN, "kokoro-multi-lang-v1_1.tar.bz2"),
             ),
-            downloadBytes = 364_816_464L,
+            downloadBytes = 364_855_331L,
             extractedBytes = 426_654_376L,
-            sha256 = "a3f4c73d043860e3fd2e5b06f36795eb81de0fc8e8de6df703245edddd87dbad",
+            sha256 = "b78e1ac42b852e839cceaafbe88f66806bf5860992d1d7b9a3f2ad1198427aed",
             files = ModelFiles(
                 kind = "kokoro",
                 modelName = "model.onnx",

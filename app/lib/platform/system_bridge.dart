@@ -158,6 +158,124 @@ class SystemBridge {
       return const RuntimeMeta();
     }
   }
+
+  /// 读取下载镜像下拉配置与可用预设清单。
+  static Future<MirrorConfigState> getMirrorConfig() async {
+    try {
+      final m = await _channel
+          .invokeMethod<Map<Object?, Object?>>('getMirrorConfig');
+      if (m == null) return MirrorConfigState.defaults();
+      final rawPresets = m['presets'];
+      final presets = rawPresets is List
+          ? rawPresets
+              .whereType<Map<Object?, Object?>>()
+              .map(
+                (p) => MirrorPresetItem(
+                  id: (p['id'] as String?) ?? '',
+                  label: (p['label'] as String?) ?? '',
+                  prefix: (p['prefix'] as String?) ?? '',
+                ),
+              )
+              .where((p) => p.id.isNotEmpty)
+              .toList()
+          : MirrorConfigState.defaultPresets;
+      return MirrorConfigState(
+        selected: (m['selected'] as String?) ?? 'auto',
+        customUrl: (m['customUrl'] as String?) ?? '',
+        presets: presets.isEmpty ? MirrorConfigState.defaultPresets : presets,
+      );
+    } on PlatformException {
+      return MirrorConfigState.defaults();
+    } on MissingPluginException {
+      return MirrorConfigState.defaults();
+    }
+  }
+
+  /// 保存下载镜像下拉选中项与自定义镜像地址。
+  static Future<bool> setMirrorConfig({
+    String? selected,
+    String? customUrl,
+  }) async {
+    try {
+      final res = await _channel.invokeMethod<String>(
+        'setMirrorConfig',
+        <String, Object>{
+          if (selected != null) 'selected': selected,
+          if (customUrl != null) 'customUrl': customUrl,
+        },
+      );
+      return res == 'ok';
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
+  /// 对所有可用下载镜像执行 64KB Range 并行测速。
+  static Future<List<MirrorProbeResult>> probeMirrors({
+    String? customUrl,
+  }) async {
+    try {
+      final raw = await _channel.invokeMethod<List<Object?>>(
+        'probeMirrors',
+        <String, Object>{if (customUrl != null) 'customUrl': customUrl},
+      );
+      if (raw == null) return const <MirrorProbeResult>[];
+      return raw
+          .whereType<Map<Object?, Object?>>()
+          .map(
+            (r) => MirrorProbeResult(
+              id: (r['id'] as String?) ?? '',
+              label: (r['label'] as String?) ?? '',
+              ok: r['ok'] == true,
+              latencyMs: (r['latencyMs'] as num?)?.toInt() ?? -1,
+              speedKbps: (r['speedKbps'] as num?)?.toDouble() ?? -1.0,
+              httpCode: (r['httpCode'] as num?)?.toInt() ?? 0,
+            ),
+          )
+          .toList();
+    } on PlatformException {
+      return const <MirrorProbeResult>[];
+    } on MissingPluginException {
+      return const <MirrorProbeResult>[];
+    }
+  }
+
+  /// 调用系统文件选择器导入离线模型归档或 `.onnx` 声码器。
+  static Future<LocalImportResult> importLocalModel(String modelId) async {
+    try {
+      final m = await _channel.invokeMethod<Map<Object?, Object?>>(
+        'importLocalModel',
+        <String, Object>{'modelId': modelId},
+      );
+      if (m == null) {
+        return const LocalImportResult(
+          ok: false,
+          cancelled: false,
+          message: '当前环境不支持本地文件导入',
+        );
+      }
+      return LocalImportResult(
+        ok: m['ok'] == true,
+        cancelled: m['cancelled'] == true,
+        message: (m['message'] as String?) ?? '',
+        modelId: m['modelId'] as String?,
+      );
+    } on PlatformException catch (e) {
+      return LocalImportResult(
+        ok: false,
+        cancelled: false,
+        message: e.message ?? '本地导入调用失败',
+      );
+    } on MissingPluginException {
+      return const LocalImportResult(
+        ok: false,
+        cancelled: false,
+        message: '当前平台通道不支持本地文件导入',
+      );
+    }
+  }
 }
 
 /// 通用在线 TTS 引擎配置。
@@ -226,4 +344,112 @@ class RuntimeMeta {
   final String localLastError;
   final Map<String, dynamic> lastPerf;
   final String providerKind;
+}
+
+/// 镜像下拉选项定义。
+class MirrorPresetItem {
+  const MirrorPresetItem({
+    required this.id,
+    required this.label,
+    required this.prefix,
+  });
+
+  final String id;
+  final String label;
+  final String prefix;
+}
+
+/// 当前选中的镜像源与预设清单。
+class MirrorConfigState {
+  const MirrorConfigState({
+    required this.selected,
+    required this.customUrl,
+    required this.presets,
+  });
+
+  factory MirrorConfigState.defaults() => const MirrorConfigState(
+        selected: 'auto',
+        customUrl: '',
+        presets: defaultPresets,
+      );
+
+  static const List<MirrorPresetItem> defaultPresets = <MirrorPresetItem>[
+    MirrorPresetItem(id: 'auto', label: '自动测速选最快（推荐）', prefix: ''),
+    MirrorPresetItem(
+      id: 'https://gh-proxy.com',
+      label: 'gh-proxy.com（国内加速）',
+      prefix: 'https://gh-proxy.com',
+    ),
+    MirrorPresetItem(
+      id: 'https://gh-proxy.org',
+      label: 'gh-proxy.org（备用加速）',
+      prefix: 'https://gh-proxy.org',
+    ),
+    MirrorPresetItem(
+      id: 'https://edgeone.gh-proxy.org',
+      label: 'EdgeOne 加速镜像',
+      prefix: 'https://edgeone.gh-proxy.org',
+    ),
+    MirrorPresetItem(
+      id: 'https://cdn.gh-proxy.org',
+      label: 'CDN 加速镜像',
+      prefix: 'https://cdn.gh-proxy.org',
+    ),
+    MirrorPresetItem(id: 'direct', label: 'GitHub 官方直连', prefix: ''),
+    MirrorPresetItem(id: 'custom', label: '自定义镜像 / 直链', prefix: ''),
+  ];
+
+  final String selected;
+  final String customUrl;
+  final List<MirrorPresetItem> presets;
+
+  MirrorConfigState copyWith({
+    String? selected,
+    String? customUrl,
+    List<MirrorPresetItem>? presets,
+  }) {
+    return MirrorConfigState(
+      selected: selected ?? this.selected,
+      customUrl: customUrl ?? this.customUrl,
+      presets: presets ?? this.presets,
+    );
+  }
+}
+
+/// 单节点镜像测速结果。
+class MirrorProbeResult {
+  const MirrorProbeResult({
+    required this.id,
+    required this.label,
+    required this.ok,
+    required this.latencyMs,
+    required this.speedKbps,
+    required this.httpCode,
+  });
+
+  final String id;
+  final String label;
+  final bool ok;
+  final int latencyMs;
+  final double speedKbps;
+  final int httpCode;
+
+  String get shortSummary => ok
+      ? '${latencyMs}ms · ${speedKbps >= 1000 ? '${(speedKbps / 1024).toStringAsFixed(1)} MB/s' : '${speedKbps.toStringAsFixed(0)} KB/s'}'
+      : (httpCode > 0 ? 'HTTP $httpCode' : '连接超时');
+}
+
+/// 本地导入结果。
+class LocalImportResult {
+  const LocalImportResult({
+    required this.ok,
+    required this.cancelled,
+    required this.message,
+    this.modelId,
+  });
+
+  final bool ok;
+  final bool cancelled;
+  final String message;
+  final String? modelId;
 }

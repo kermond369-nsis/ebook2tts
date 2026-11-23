@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "version": 2026112201,
-  "updatedAt": "2026-11-22",
-  "note": "书声（ebook2tts）模型清单（IM-201）。体积为 ERR-001 逐字节实测值；mirrors 为国内可达的 GitHub 加速源（2026-09-14 逐源实测，支持 Range 断点续传）。修改本文件必须同步 core/ModelCatalog.kt 的内置兜底，否则 ManifestCodecTest 会失败。",
+  "version": 2026112301,
+  "updatedAt": "2026-11-23",
+  "note": "书声（ebook2tts）模型清单（IM-201）。体积与 SHA-256 为上游 GitHub Releases 实测值；mirrors 为 2026-11-23 Range 206 实测可达加速源。修改本文件必须同步 core/ModelCatalog.kt，否则 ManifestCodecTest 会失败。",
   "models": [
     {
       "id": "kokoro-int8",
@@ -11,12 +11,13 @@
       "archive": "kokoro-int8-multi-lang-v1_1.tar.bz2",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2",
       "mirrors": [
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2",
-        "https://hk.gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2",
-        "https://ghproxy.net/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2"
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2",
+        "https://gh-proxy.org/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2",
+        "https://edgeone.gh-proxy.org/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2",
+        "https://cdn.gh-proxy.org/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2"
       ],
-      "sha256": "a1e94694776049035c4f2c6529f003aaece993c76aae9a78995831c3c4dcafc6",
-      "downloadBytes": 147031220,
+      "sha256": "259c9c8bc906d6078e4e0570421885dabb68b539c2f970fcbb890a58eeaf3e9c",
+      "downloadBytes": 147052523,
       "extractedBytes": 215321602,
       "files": {
         "kind": "kokoro",
@@ -35,9 +36,10 @@
       "archive": "matcha-icefall-zh-en.tar.bz2",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2",
       "mirrors": [
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2",
-        "https://hk.gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2",
-        "https://ghproxy.net/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2"
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2",
+        "https://gh-proxy.org/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2",
+        "https://edgeone.gh-proxy.org/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2",
+        "https://cdn.gh-proxy.org/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2"
       ],
       "sha256": "271b804af570400d3bcdcb53bf6e53cc9f75180ee763b9f13eb5eaf2b0d086ef",
       "downloadBytes": 79033838,
@@ -62,9 +64,10 @@
       "archive": "sherpa-onnx-vits-zh-ll.tar.bz2",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-vits-zh-ll.tar.bz2",
       "mirrors": [
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-vits-zh-ll.tar.bz2",
-        "https://hk.gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-vits-zh-ll.tar.bz2",
-        "https://ghproxy.net/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-vits-zh-ll.tar.bz2"
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-vits-zh-ll.tar.bz2",
+        "https://gh-proxy.org/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-vits-zh-ll.tar.bz2",
+        "https://edgeone.gh-proxy.org/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-vits-zh-ll.tar.bz2",
+        "https://cdn.gh-proxy.org/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-vits-zh-ll.tar.bz2"
       ],
       "sha256": "f7393d1bbc59709d5f52ea76cd5bceeec62f6a29f9c1f79ff64b4c15ec841f3a",
       "downloadBytes": 118810709,
@@ -84,12 +87,13 @@
       "archive": "kokoro-multi-lang-v1_1.tar.bz2",
       "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2",
       "mirrors": [
-        "https://ghfast.top/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2",
-        "https://hk.gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2",
-        "https://ghproxy.net/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2"
+        "https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2",
+        "https://gh-proxy.org/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2",
+        "https://edgeone.gh-proxy.org/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2",
+        "https://cdn.gh-proxy.org/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2"
       ],
-      "sha256": "a3f4c73d043860e3fd2e5b06f36795eb81de0fc8e8de6df703245edddd87dbad",
-      "downloadBytes": 364816464,
+      "sha256": "b78e1ac42b852e839cceaafbe88f66806bf5860992d1d7b9a3f2ad1198427aed",
+      "downloadBytes": 364855331,
       "extractedBytes": 426654376,
       "files": {
         "kind": "kokoro",

@@ -118,7 +118,7 @@ class _SamplePageState extends ConsumerState<SamplePage> {
                   ),
                   const Spacer(),
                   Text(
-                    playing ? '播放中' : '就绪',
+                    playing ? previewStageLabel(preview.stage) : '就绪',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -171,12 +171,18 @@ class _SamplePageState extends ConsumerState<SamplePage> {
           ),
         ),
 
-        if (preview.lastError != null && preview.lastError!.isNotEmpty) ...[
+        if (!playing &&
+            preview.lastError != null &&
+            preview.lastError!.isNotEmpty) ...[
           InfoBanner(
             title: '上次试听未成功',
             body: preview.lastError!,
             color: Tokens.danger,
             icon: Icons.error_outline_rounded,
+            action: TextButton(
+              onPressed: () => ref.read(previewProvider.notifier).clearError(),
+              child: const Text('知道了'),
+            ),
           ),
           const SizedBox(height: 12),
         ],
@@ -186,7 +192,7 @@ class _SamplePageState extends ConsumerState<SamplePage> {
             Expanded(
               flex: 2,
               child: PrimaryButton(
-                label: playing ? '正在朗读…' : '开始朗读',
+                label: playing ? previewStageLabel(preview.stage) : '开始朗读',
                 icon: Icons.play_arrow_rounded,
                 onPressed: playing
                     ? null

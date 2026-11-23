@@ -40,6 +40,9 @@ class SherpaBackend(
         private set
     var loadError: String? = null
         private set
+    @Volatile
+    var lastSynthError: String? = null
+        private set
 
     private val released = AtomicBoolean(false)
 
@@ -212,20 +215,40 @@ class SherpaBackend(
     ): Boolean {
         val engine = tts ?: return false
         if (text.isBlank()) return false
+        lastSynthError = null
         var stopped = false
+        val cb = SherpaAudioCallback { samples ->
+            if (samples.isEmpty()) 1
+            else if (!onPcm(samples)) {
+                stopped = true
+                0
+            } else {
+                1
+            }
+        }
         try {
-            engine.generateWithCallback(text, speakerId, speed) { samples ->
-                if (samples.isEmpty()) return@generateWithCallback 1
-                val cont = onPcm(samples)
-                if (!cont) {
-                    stopped = true
-                    0
-                } else {
-                    1
-                }
+            val audio = engine.generateWithCallback(text, speakerId, speed, cb)
+            if (!cb.wasInvoked() && !stopped && audio.samples.isNotEmpty()) {
+                Log.w(TAG, "CALLBACK_BYPASSED|model=${spec.id}|samples=${audio.samples.size}|fallback=return_samples")
+                if (!onPcm(audio.samples)) stopped = true
             }
         } catch (t: Throwable) {
-            Log.e(TAG, "generateWithCallback failed", t)
+            Log.e(TAG, "generateWithCallback failed, trying sync generate", t)
+            if (!cb.wasInvoked() && !stopped) {
+                try {
+                    val audio = engine.generate(text, speakerId, speed)
+                    if (audio.samples.isNotEmpty()) {
+                        if (!onPcm(audio.samples)) stopped = true
+                    } else {
+                        lastSynthError = "本地模型推理返回空音频"
+                    }
+                } catch (t2: Throwable) {
+                    lastSynthError = t2.message ?: t2.javaClass.simpleName
+                    Log.e(TAG, "fallback generate failed", t2)
+                }
+            } else {
+                lastSynthError = t.message ?: t.javaClass.simpleName
+            }
         }
         return stopped
     }

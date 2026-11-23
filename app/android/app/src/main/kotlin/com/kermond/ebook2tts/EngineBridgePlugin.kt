@@ -13,6 +13,7 @@ import com.kermond.ebook2tts.core.TtsProviderKind
 import com.kermond.ebook2tts.core.VoiceCatalog
 import com.kermond.ebook2tts.engine.ConfigStore
 import com.kermond.ebook2tts.engine.DownloadService
+import com.kermond.ebook2tts.engine.ManifestRepository
 import com.kermond.ebook2tts.engine.OnlineBackendHolder
 import com.kermond.ebook2tts.engine.OnlineRequest
 import com.kermond.ebook2tts.engine.OnlineSelector
@@ -86,12 +87,82 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 val code = intent?.getStringExtra("code").orEmpty()
+                when {
+                    code.startsWith("DL_PROGRESS|") -> {
+                        val p = code.split('|', limit = 6)
+                        if (p.size >= 5) {
+                            emit(
+                                "progress",
+                                JSONObject()
+                                    .put("modelId", p[1])
+                                    .put("received", p[2].toLongOrNull() ?: 0L)
+                                    .put("total", p[3].toLongOrNull() ?: 0L)
+                                    .put("phase", p[4])
+                                    .put("sourceLabel", p.getOrNull(5).orEmpty())
+                                    .toString(),
+                            )
+                        }
+                        return
+                    }
+                    code.startsWith("DL_DONE|") -> {
+                        val mid = code.removePrefix("DL_DONE|")
+                        progressJob?.cancel()
+                        emit(
+                            "progress",
+                            JSONObject()
+                                .put("modelId", mid)
+                                .put("received", 1L)
+                                .put("total", 1L)
+                                .put("phase", "done")
+                                .toString(),
+                        )
+                        emit("model", JSONObject().put("modelId", mid).put("installed", true).toString())
+                        emit("status", JSONObject().put("phase", "model_ready").put("modelId", mid).put("state", "ready").toString())
+                        return
+                    }
+                    code.startsWith("DL_CANCELLED|") -> {
+                        val mid = code.removePrefix("DL_CANCELLED|")
+                        progressJob?.cancel()
+                        emit(
+                            "progress",
+                            JSONObject()
+                                .put("modelId", mid)
+                                .put("received", 0L)
+                                .put("total", 0L)
+                                .put("phase", "cancelled")
+                                .toString(),
+                        )
+                        return
+                    }
+                    code.startsWith("DL_ERROR|") -> {
+                        val rest = code.removePrefix("DL_ERROR|")
+                        val idx = rest.indexOf('|')
+                        val mid = if (idx >= 0) rest.substring(0, idx) else ""
+                        val errMsg = if (idx >= 0) rest.substring(idx + 1) else rest
+                        progressJob?.cancel()
+                        emit(
+                            "progress",
+                            JSONObject()
+                                .put("modelId", mid)
+                                .put("received", 0L)
+                                .put("total", 0L)
+                                .put("phase", "error")
+                                .put("error", errMsg)
+                                .toString(),
+                        )
+                        return
+                    }
+                }
                 val payload = JSONObject().put("phase", "engine_status").put("code", code)
                 when {
                     code.startsWith("PREVIEW_START|") -> {
                         val voice = code.removePrefix("PREVIEW_START|")
                         payload.put("previewing", true)
                         if (voice.isNotEmpty()) payload.put("previewVoiceId", voice)
+                    }
+                    code.startsWith("PREVIEW_STAGE|") -> {
+                        payload.put("previewing", true)
+                        payload.put("previewStage", code.removePrefix("PREVIEW_STAGE|"))
                     }
                     code == "PREVIEW_DONE" -> payload.put("previewing", false)
                     code.startsWith("PREVIEW_ERROR|") -> {
@@ -161,9 +232,8 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
 
     override suspend fun models(): List<ModelDto> = withContext(Dispatchers.IO) {
         val active = ConfigStore.modelId()
-        // 清单驱动（远程→缓存→内置兜底）由 ModelCatalog 内置兜底保证；此处只做展示映射
-        val custom = ConfigStore.mirrorBase()
-        ModelCatalog.ALL.map { spec ->
+        val list = runCatching { ManifestRepository(context).specs() }.getOrElse { ModelCatalog.ALL }
+        list.map { spec ->
             ModelDto(
                 id = spec.id,
                 label = spec.label,
@@ -183,16 +253,35 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         if (isInstalled(modelId)) return
         DownloadService.start(context, modelId)
         log("download start $modelId")
+        val spec = runCatching { ModelCatalog.byId(modelId) }.getOrNull()
+        val initTotal = (spec?.downloadBytes ?: 0L) + (spec?.files?.vocoderBytes ?: 0L)
+        emit(
+            "progress",
+            JSONObject()
+                .put("modelId", modelId)
+                .put("received", 0L)
+                .put("total", initTotal)
+                .put("phase", "probe")
+                .toString(),
+        )
         emit("status", JSONObject().put("modelId", modelId).put("state", "downloading").toString())
         startProgressWatch(modelId)
     }
 
     override suspend fun cancelDownload() {
+        val curId = DownloadService.currentSnapshot()?.modelId.orEmpty()
         progressJob?.cancel()
-        // P6 / IM-520：先用取消动作让引擎**立即断流**并退前台，再兜底停服务
-        // （此前只 stopService ⇒ 工作线程卡在阻塞读时服务迟迟不退）
         DownloadService.cancel(context)
         log("download cancel")
+        emit(
+            "progress",
+            JSONObject()
+                .put("modelId", curId)
+                .put("received", 0L)
+                .put("total", 0L)
+                .put("phase", "idle")
+                .toString(),
+        )
         emit("status", JSONObject().put("state", "cancelled").toString())
     }
 
@@ -386,7 +475,7 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         return "$head••••••••${key.takeLast(4)}"
     }
 
-    /** 下载期按 `.part` 实际长度推流进度（含 Matcha 声码器 `.part`，只读文件长度）。 */
+    /** 下载期：优先同步 DownloadService 精确阶段/源/进度，退化按 `.part` 实际长度保底推流。 */
     private fun startProgressWatch(modelId: String) {
         progressJob?.cancel()
         val spec = runCatching { ModelCatalog.byId(modelId) }.getOrNull() ?: return
@@ -400,29 +489,51 @@ class EngineBridgePlugin : FlutterPlugin, EngineHostApi {
         val total = spec.downloadBytes + spec.files.vocoderBytes
         progressJob = scope.launch {
             while (isActive) {
-                val mainBytes = if (mainPart.exists()) mainPart.length() else 0L
-                val vocBytes = if (vocPart != null && vocPart.exists()) vocPart.length() else 0L
-                val received = (mainBytes + vocBytes).coerceAtMost(total)
-                val phase = when {
-                    isInstalled(modelId) -> "done"
-                    vocBytes > 0L -> "download_vocoder"
-                    mainBytes > 0L -> "download"
-                    else -> "probe"
-                }
-                emit(
-                    "progress",
-                    JSONObject()
-                        .put("modelId", modelId)
-                        .put("received", received)
-                        .put("total", total)
-                        .put("phase", phase)
-                        .toString(),
-                )
-                if (phase == "done") {
+                if (isInstalled(modelId)) {
+                    emit(
+                        "progress",
+                        JSONObject()
+                            .put("modelId", modelId)
+                            .put("received", total)
+                            .put("total", total)
+                            .put("phase", "done")
+                            .toString(),
+                    )
                     emit("model", JSONObject().put("modelId", modelId).put("installed", true).toString())
                     break
                 }
-                delay(1000)
+                val snap = DownloadService.currentSnapshot()
+                if (snap != null && snap.modelId == modelId) {
+                    emit(
+                        "progress",
+                        JSONObject()
+                            .put("modelId", modelId)
+                            .put("received", snap.received)
+                            .put("total", if (snap.total > 0L) snap.total else total)
+                            .put("phase", snap.phase)
+                            .put("sourceLabel", snap.sourceLabel)
+                            .toString(),
+                    )
+                } else {
+                    val mainBytes = if (mainPart.exists()) mainPart.length() else 0L
+                    val vocBytes = if (vocPart != null && vocPart.exists()) vocPart.length() else 0L
+                    val received = (mainBytes + vocBytes).coerceAtMost(total)
+                    val phase = when {
+                        vocBytes > 0L -> "download_vocoder"
+                        mainBytes > 0L -> "download"
+                        else -> "probe"
+                    }
+                    emit(
+                        "progress",
+                        JSONObject()
+                            .put("modelId", modelId)
+                            .put("received", received)
+                            .put("total", total)
+                            .put("phase", phase)
+                            .toString(),
+                    )
+                }
+                delay(650)
             }
         }
     }

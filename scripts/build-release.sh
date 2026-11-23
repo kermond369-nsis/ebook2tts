@@ -117,5 +117,14 @@ if mode == "arm64":
 else:
     assert "arm64-v8a" in nat[0] and "armeabi-v7a" in nat[0] and "x86_64" in nat[0], f"Universal ABI 校验失败: {nat[0]}"
     assert re.search(r"'x86'", nat[0]) is None, f"Universal 不应包含 32 位 x86: {nat[0]}"
+
+dex_bytes = b""
+with zipfile.ZipFile(out) as zout:
+    for it in zout.infolist():
+        if it.filename.startswith("classes") and it.filename.endswith(".dex"):
+            dex_bytes += zout.read(it.filename)
+assert b"Lcom/kermond/ebook2tts/engine/SherpaAudioCallback;" in dex_bytes, "R8 丢失 SherpaAudioCallback 类"
+assert b"invoke\x00" in dex_bytes, "R8 丢失 JNI invoke 回调签名"
+print("[核验] R8 DEX 回调签名守卫通过: SherpaAudioCallback + invoke")
 print(f"[完成] mode={mode} out={out} bytes={os.path.getsize(out)}")
 PY

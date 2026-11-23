@@ -4,6 +4,7 @@ import android.util.Log
 import com.kermond.ebook2tts.core.PathSafety
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.IOException
@@ -11,13 +12,13 @@ import java.io.InputStream
 import java.util.zip.ZipInputStream
 
 /**
- * 安全解压（AR-§6.5 / IM-203）：Zip Slip、体积/条目上限、隔离区。
+ * 安全解压（AR-§6.5 / IM-203）：Zip Slip、体积/条目上限、隔离区、支持取消中断。
  */
 object SafeExtractor {
 
     private const val TAG = "SafeExtractor"
     private const val MAX_ENTRIES = 20_000
-    private const val VOLUME_TOLERANCE = 1.10
+    private const val VOLUME_TOLERANCE = 1.15
 
     class SecurityError(message: String) : IOException(message)
 
@@ -27,17 +28,23 @@ object SafeExtractor {
         archiveName: String,
         maxExtractedBytes: Long,
         whitelist: Set<String>? = null,
+        isCancelled: () -> Boolean = { false },
     ) {
+        if (isCancelled()) throw IOException("cancelled")
         if (stagingDir.exists()) stagingDir.deleteRecursively()
         if (!stagingDir.mkdirs()) {
             throw IOException("cannot create staging: ${stagingDir.absolutePath}")
         }
         val limit = (maxExtractedBytes * VOLUME_TOLERANCE).toLong().coerceAtLeast(1L)
+        val lower = archiveName.lowercase()
         try {
-            if (archiveName.endsWith(".zip")) {
-                extractZip(input, stagingDir, limit)
-            } else {
-                extractTarBz2(input, stagingDir, limit)
+            when {
+                lower.endsWith(".zip") -> extractZip(input, stagingDir, limit, isCancelled)
+                lower.endsWith(".tar.gz") || lower.endsWith(".tgz") ->
+                    extractTarGz(input, stagingDir, limit, isCancelled)
+                lower.endsWith(".tar") ->
+                    extractTarStream(BufferedInputStream(input), stagingDir, limit, isCancelled)
+                else -> extractTarBz2(input, stagingDir, limit, isCancelled)
             }
         } catch (t: Throwable) {
             stagingDir.deleteRecursively()
@@ -53,42 +60,74 @@ object SafeExtractor {
         Log.i(TAG, "extracted to ${stagingDir.absolutePath}")
     }
 
-    private fun extractTarBz2(input: InputStream, stagingDir: File, limit: Long) {
+    private fun extractTarBz2(
+        input: InputStream,
+        stagingDir: File,
+        limit: Long,
+        isCancelled: () -> Boolean,
+    ) {
+        BZip2CompressorInputStream(BufferedInputStream(input)).use { bz ->
+            extractTarStream(bz, stagingDir, limit, isCancelled)
+        }
+    }
+
+    private fun extractTarGz(
+        input: InputStream,
+        stagingDir: File,
+        limit: Long,
+        isCancelled: () -> Boolean,
+    ) {
+        GzipCompressorInputStream(BufferedInputStream(input)).use { gz ->
+            extractTarStream(gz, stagingDir, limit, isCancelled)
+        }
+    }
+
+    private fun extractTarStream(
+        stream: InputStream,
+        stagingDir: File,
+        limit: Long,
+        isCancelled: () -> Boolean,
+    ) {
         var written = 0L
         var entries = 0
-        BZip2CompressorInputStream(BufferedInputStream(input)).use { bz ->
-            TarArchiveInputStream(bz).use { tar ->
-                var entry = tar.nextEntry
-                while (entry != null) {
-                    entries++
-                    if (entries > MAX_ENTRIES) throw SecurityError("too many entries")
-                    val name = entry.name
-                    if (PathSafety.hasUnsafeZipEntryName(name)) {
-                        throw SecurityError("unsafe entry: $name")
-                    }
-                    if (entry.isSymbolicLink || entry.isLink) {
-                        throw SecurityError("link entry rejected: $name")
-                    }
-                    val outFile = canonicalChild(stagingDir, name)
-                    if (entry.isDirectory) {
-                        outFile.mkdirs()
-                    } else {
-                        outFile.parentFile?.mkdirs()
-                        written += writeStream(tar, outFile, limit - written)
-                        if (written > limit) throw SecurityError("extract size exceeded")
-                    }
-                    entry = tar.nextEntry
+        TarArchiveInputStream(stream).use { tar ->
+            var entry = tar.nextEntry
+            while (entry != null) {
+                if (isCancelled()) throw IOException("cancelled")
+                entries++
+                if (entries > MAX_ENTRIES) throw SecurityError("too many entries")
+                val name = entry.name
+                if (PathSafety.hasUnsafeZipEntryName(name)) {
+                    throw SecurityError("unsafe entry: $name")
                 }
+                if (entry.isSymbolicLink || entry.isLink) {
+                    throw SecurityError("link entry rejected: $name")
+                }
+                val outFile = canonicalChild(stagingDir, name)
+                if (entry.isDirectory) {
+                    outFile.mkdirs()
+                } else {
+                    outFile.parentFile?.mkdirs()
+                    written += writeStream(tar, outFile, limit - written, isCancelled)
+                    if (written > limit) throw SecurityError("extract size exceeded")
+                }
+                entry = tar.nextEntry
             }
         }
     }
 
-    private fun extractZip(input: InputStream, stagingDir: File, limit: Long) {
+    private fun extractZip(
+        input: InputStream,
+        stagingDir: File,
+        limit: Long,
+        isCancelled: () -> Boolean,
+    ) {
         var written = 0L
         var entries = 0
         ZipInputStream(BufferedInputStream(input)).use { zis ->
             var entry = zis.nextEntry
             while (entry != null) {
+                if (isCancelled()) throw IOException("cancelled")
                 entries++
                 if (entries > MAX_ENTRIES) throw SecurityError("too many entries")
                 val name = entry.name
@@ -100,7 +139,7 @@ object SafeExtractor {
                     outFile.mkdirs()
                 } else {
                     outFile.parentFile?.mkdirs()
-                    written += writeStream(zis, outFile, limit - written)
+                    written += writeStream(zis, outFile, limit - written, isCancelled)
                     if (written > limit) throw SecurityError("extract size exceeded")
                 }
                 entry = zis.nextEntry
@@ -118,11 +157,17 @@ object SafeExtractor {
         return child
     }
 
-    private fun writeStream(input: InputStream, out: File, remaining: Long): Long {
+    private fun writeStream(
+        input: InputStream,
+        out: File,
+        remaining: Long,
+        isCancelled: () -> Boolean,
+    ): Long {
         var read = 0L
         out.outputStream().use { os ->
             val buf = ByteArray(64 * 1024)
             while (true) {
+                if (isCancelled()) throw IOException("cancelled")
                 val n = input.read(buf)
                 if (n < 0) break
                 read += n

@@ -83,19 +83,23 @@ class ModelInfo {
 
 /// 下载进度。
 ///
-/// [phase] 取值：`idle`/`probe`/`download`/`verify`/`extract`/`promote`/`done`/`error`。
+/// [phase] 取值：`idle`/`probe`/`download`/`download_vocoder`/`verify`/`extract`/`promote`/`import`/`done`/`cancelled`/`error`。
 class DownloadProgress {
   const DownloadProgress({
     required this.modelId,
     required this.received,
     required this.total,
     required this.phase,
+    this.sourceLabel,
+    this.errorMessage,
   });
 
   final String modelId;
   final int received;
   final int total;
   final String phase;
+  final String? sourceLabel;
+  final String? errorMessage;
 
   double get fraction => total <= 0 ? 0 : (received / total).clamp(0.0, 1.0);
 }

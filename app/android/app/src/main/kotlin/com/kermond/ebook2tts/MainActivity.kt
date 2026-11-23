@@ -1,22 +1,31 @@
 package com.kermond.ebook2tts
 
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
+import com.kermond.ebook2tts.core.MirrorResolver
+import com.kermond.ebook2tts.core.ModelCatalog
 import com.kermond.ebook2tts.core.OnlineSettings
 import com.kermond.ebook2tts.core.TtsProviderKind
 import com.kermond.ebook2tts.engine.ConfigStore
+import com.kermond.ebook2tts.engine.HttpDownloader
+import com.kermond.ebook2tts.engine.ModelDownloader
+import com.kermond.ebook2tts.engine.ModelRegistry
 import com.kermond.ebook2tts.engine.OnlineBackendHolder
 import com.kermond.ebook2tts.engine.OnlineRequest
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 界面进程入口。
  *
- * 仅承载与系统界面的少量交互（跳转系统「文字转语音」设置页）；
- * 朗读、合成、下载等全部由 :engine 的独立进程 `:tts_service` 完成，主进程零推理。
+ * 仅承载与系统界面的少量交互（跳转系统「文字转语音」设置页 / 镜像测速 / SAF 本地导入）；
+ * 朗读、合成等推理全部由 :engine 的独立进程 `:tts_service` 完成，主进程零推理。
  */
 class MainActivity : FlutterActivity() {
 
@@ -27,13 +36,17 @@ class MainActivity : FlutterActivity() {
         const val DEFAULT_SAMPLE = "夜深了，台灯把书桌照成一小块温暖的岛。"
         /** 通知权限请求码（P7 / IM-544） */
         const val REQ_NOTIFICATIONS = 1001
+        /** SAF 离线导入模型文件请求码（RQ-204） */
+        const val REQ_IMPORT_MODEL = 1002
     }
 
     /** 诊断用：显式绑定本引擎的系统 TTS 客户端（仅用于对照朗读，不写配置、不改旁白） */
     private var diagTts: android.speech.tts.TextToSpeech? = null
     private var pendingSpeak: String? = null
-    private val probeExecutor = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "provider-probe").apply { isDaemon = true }
+    private var pendingImportModelId: String? = null
+    private var pendingImportResult: MethodChannel.Result? = null
+    private val ioExecutor = Executors.newCachedThreadPool { r ->
+        Thread(r, "app-io").apply { isDaemon = true }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -55,8 +68,8 @@ class MainActivity : FlutterActivity() {
                     // RQ-513：开局朗读路由模式（读：模式 + 是否已选择；写：模式 + 置已选择）
                     "getRouteMode" -> result.success(
                         mapOf(
-                            "mode" to com.kermond.ebook2tts.engine.ConfigStore.routeMode().id,
-                            "chosen" to com.kermond.ebook2tts.engine.ConfigStore.routeChosen(),
+                            "mode" to ConfigStore.routeMode().id,
+                            "chosen" to ConfigStore.routeChosen(),
                         )
                     )
                     "setRouteMode" -> {
@@ -84,6 +97,94 @@ class MainActivity : FlutterActivity() {
                             "providerKind" to ConfigStore.onlineProviderKind().id,
                         )
                     )
+                    "getMirrorConfig" -> result.success(
+                        mapOf(
+                            "selected" to ConfigStore.mirrorSelection(),
+                            "customUrl" to ConfigStore.mirrorBase(),
+                            "presets" to MirrorResolver.PRESETS.map { p ->
+                                mapOf("id" to p.id, "label" to p.label, "prefix" to p.prefix)
+                            },
+                        )
+                    )
+                    "setMirrorConfig" -> {
+                        call.argument<String>("selected")?.let { ConfigStore.setMirrorSelection(it) }
+                        call.argument<String>("customUrl")?.let { ConfigStore.setMirrorBase(it) }
+                        ModelRegistry.invalidate()
+                        result.success("ok")
+                    }
+                    "probeMirrors" -> {
+                        val customArg = call.argument<String>("customUrl")?.trim()
+                        ioExecutor.execute {
+                            val spec = ModelCatalog.byId("matcha-zh-en")
+                            val customUrl = customArg ?: ConfigStore.mirrorBase()
+                            val entries = mutableListOf<Triple<String, String, String>>()
+                            for (p in MirrorResolver.PRESETS) {
+                                val url = when (p.id) {
+                                    MirrorResolver.MIRROR_AUTO -> null
+                                    MirrorResolver.MIRROR_DIRECT -> spec.primaryUrl
+                                    MirrorResolver.MIRROR_CUSTOM ->
+                                        MirrorResolver.resolveProxyOrBaseUrl(spec, customUrl)
+                                    else -> MirrorResolver.resolveProxyOrBaseUrl(spec, p.prefix)
+                                }
+                                if (url != null) entries += Triple(p.id, p.label, url)
+                            }
+                            val probeResults = HttpDownloader().probeAll(entries.map { it.third })
+                            val payload = entries.mapIndexed { idx, (id, label, _) ->
+                                val pr = probeResults.getOrNull(idx)
+                                mapOf(
+                                    "id" to id,
+                                    "label" to label,
+                                    "ok" to (pr?.ok == true),
+                                    "latencyMs" to (pr?.latencyMs ?: -1L),
+                                    "speedKbps" to (pr?.speedKbps ?: -1.0),
+                                    "httpCode" to (pr?.httpCode ?: 0),
+                                )
+                            }
+                            runOnUiThread { result.success(payload) }
+                        }
+                    }
+                    "importLocalModel" -> {
+                        val modelId = call.argument<String>("modelId")?.trim().orEmpty()
+                        if (modelId.isEmpty()) {
+                            result.success(mapOf("ok" to false, "cancelled" to false, "message" to "未指定要导入的模型"))
+                            return@setMethodCallHandler
+                        }
+                        if (pendingImportResult != null) {
+                            result.success(mapOf("ok" to false, "cancelled" to false, "message" to "已有导入任务正在进行"))
+                            return@setMethodCallHandler
+                        }
+                        pendingImportModelId = modelId
+                        pendingImportResult = result
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                            putExtra(
+                                Intent.EXTRA_MIME_TYPES,
+                                arrayOf(
+                                    "application/x-bzip2",
+                                    "application/gzip",
+                                    "application/zip",
+                                    "application/x-tar",
+                                    "application/octet-stream",
+                                    "*/*",
+                                ),
+                            )
+                        }
+                        try {
+                            @Suppress("DEPRECATION")
+                            startActivityForResult(intent, REQ_IMPORT_MODEL)
+                        } catch (t: Throwable) {
+                            pendingImportModelId = null
+                            pendingImportResult = null
+                            result.success(
+                                mapOf(
+                                    "ok" to false,
+                                    "cancelled" to false,
+                                    "message" to "无法打开系统文件选择器：${t.message ?: t.javaClass.simpleName}",
+                                )
+                            )
+                        }
+                    }
                     "getOnlineProviderConfig" -> {
                         val kind = ConfigStore.onlineProviderKind()
                         result.success(
@@ -139,7 +240,7 @@ class MainActivity : FlutterActivity() {
                             customHeaders = ConfigStore.onlineCustomHeaders(),
                             customBodyTemplate = ConfigStore.onlineCustomBodyTemplate(),
                         )
-                        probeExecutor.execute {
+                        ioExecutor.execute {
                             val err = runCatching { OnlineBackendHolder.get().validate(req) }
                                 .getOrElse { it.message?.take(200) ?: "校验异常" }
                             ConfigStore.setOnlineLastError(err.orEmpty())
@@ -155,6 +256,79 @@ class MainActivity : FlutterActivity() {
                 }
             }
     }
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode != REQ_IMPORT_MODEL) {
+            super.onActivityResult(requestCode, resultCode, data)
+            return
+        }
+        val res = pendingImportResult
+        val modelId = pendingImportModelId
+        pendingImportResult = null
+        pendingImportModelId = null
+        if (res == null) return
+        val uri = data?.data
+        if (resultCode != Activity.RESULT_OK || uri == null || modelId == null) {
+            res.success(mapOf("ok" to false, "cancelled" to true, "message" to "已取消选择文件"))
+            return
+        }
+        val spec = ModelCatalog.byId(modelId)
+        val displayName = resolveDisplayName(uri) ?: spec.archiveName
+        ConfigStore.notifyStatus(this, "DL_PROGRESS|$modelId|0|1|import|本地文件")
+        ioExecutor.execute {
+            val completed = AtomicBoolean(false)
+            fun reply(ok: Boolean, message: String) {
+                if (!completed.compareAndSet(false, true)) return
+                if (ok) {
+                    ConfigStore.notifyStatus(this@MainActivity, "DL_DONE|$modelId")
+                } else {
+                    ConfigStore.notifyStatus(this@MainActivity, "DL_CANCELLED|$modelId")
+                }
+                runOnUiThread {
+                    res.success(mapOf("ok" to ok, "cancelled" to false, "modelId" to modelId, "message" to message))
+                }
+            }
+            try {
+                val input = contentResolver.openInputStream(uri)
+                if (input == null) {
+                    reply(false, "无法读取所选文件，请检查权限或重试")
+                    return@execute
+                }
+                input.use { stream ->
+                    ModelDownloader(applicationContext).importFromStream(
+                        input = stream,
+                        archiveName = displayName,
+                        spec = spec,
+                        progress = object : ModelDownloader.Progress {
+                            override fun onProgress(bytes: Long, total: Long, stage: String) {
+                                ConfigStore.notifyStatus(
+                                    this@MainActivity,
+                                    "DL_PROGRESS|$modelId|$bytes|$total|$stage|本地导入",
+                                )
+                            }
+
+                            override fun onSuccess(modelId: String) {
+                                reply(true, "已导入并启用：${spec.label}")
+                            }
+
+                            override fun onError(message: String) {
+                                reply(false, message)
+                            }
+                        },
+                    )
+                }
+            } catch (t: Throwable) {
+                reply(false, "导入失败：${t.message ?: t.javaClass.simpleName}")
+            }
+        }
+    }
+
+    private fun resolveDisplayName(uri: Uri): String? = runCatching {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0)?.trim()?.takeIf { it.isNotEmpty() } else null
+        }
+    }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/')
 
     private fun speakSample(text: String) {
         // 修复（2026-09-15 真机发现）：此前从不设置语速，App 自家「对照朗读」永远 1.0×，
@@ -185,12 +359,6 @@ class MainActivity : FlutterActivity() {
 
     /**
      * P7 / RQ-510 / IM-544：**运行时申请通知权限**（Android 13+）。
-     *
-     * 背景（真机实测，BUG-P7-003）：引擎声明了 `POST_NOTIFICATIONS` 却**从不申请**，
-     * 真机上 `granted=false` ⇒ 下载/合成的前台服务照跑但**一条通知都不显示**，
-     * 用户看不到进度与失败原因。
-     *
-     * 实现约束：不引入新依赖（用平台 API）；仅 Android 13+ 需要；拒绝授权也不影响功能（只少了通知）。
      */
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
@@ -204,9 +372,11 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        pendingImportResult = null
+        pendingImportModelId = null
         diagTts?.shutdown()
         diagTts = null
-        probeExecutor.shutdownNow()
+        ioExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -217,9 +387,7 @@ class MainActivity : FlutterActivity() {
      */
     private fun openSystemTtsSettings(): String {
         val candidates = listOf(
-            // AOSP / 多数定制系统：文字转语音输出设置（MuMu 亦适用）
             Intent("com.android.settings.TTS_SETTINGS"),
-            // 备选常量写法（部分 ROM）
             Intent("android.settings.TTS_SETTINGS"),
         )
         for (intent in candidates) {
@@ -233,7 +401,6 @@ class MainActivity : FlutterActivity() {
                 // 尝试下一个
             }
         }
-        // 兜底：打开系统设置总页，由界面引导用户手动进入
         return try {
             startActivity(
                 Intent(android.provider.Settings.ACTION_SETTINGS)

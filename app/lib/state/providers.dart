@@ -203,7 +203,10 @@ class DownloadProgressNotifier extends Notifier<DownloadProgress?> {
       }
       final data = event.data;
       final phase = data['phase'] as String? ?? 'idle';
-      if (phase == 'idle' || phase == 'done' || phase == 'error') {
+      if (phase == 'idle' ||
+          phase == 'done' ||
+          phase == 'cancelled' ||
+          phase == 'error') {
         state = null;
         return;
       }
@@ -212,10 +215,122 @@ class DownloadProgressNotifier extends Notifier<DownloadProgress?> {
         received: (data['received'] as num?)?.toInt() ?? 0,
         total: (data['total'] as num?)?.toInt() ?? 0,
         phase: phase,
+        sourceLabel: data['sourceLabel'] as String?,
+        errorMessage: data['error'] as String?,
       );
     });
     ref.onDispose(sub.cancel);
     return null;
+  }
+}
+
+/// 最近一次模型下载/导入错误（供模型页明示排查，开始新任务或手动关闭时清除）。
+final lastDownloadErrorProvider =
+    NotifierProvider<LastDownloadErrorNotifier, String?>(
+  LastDownloadErrorNotifier.new,
+);
+
+class LastDownloadErrorNotifier extends Notifier<String?> {
+  @override
+  String? build() {
+    final engine = ref.watch(engineServiceProvider);
+    final sub = engine.events().listen((event) {
+      if (event.type != 'progress') return;
+      final phase = event.data['phase'] as String? ?? '';
+      if (phase == 'error') {
+        final msg = (event.data['error'] as String?)?.trim();
+        state = (msg != null && msg.isNotEmpty) ? msg : '下载未能完成，请重试或切换镜像';
+      } else if (phase == 'probe' ||
+          phase == 'download' ||
+          phase == 'done' ||
+          phase == 'cancelled' ||
+          phase == 'idle' ||
+          phase == 'import') {
+        if (state != null) state = null;
+      }
+    });
+    ref.onDispose(sub.cancel);
+    return null;
+  }
+
+  void setError(String msg) => state = msg;
+  void clear() => state = null;
+}
+
+/// 下载镜像配置（下拉选择 + 自定义镜像地址）。
+final mirrorConfigProvider =
+    AsyncNotifierProvider<MirrorConfigNotifier, MirrorConfigState>(
+  MirrorConfigNotifier.new,
+);
+
+class MirrorConfigNotifier extends AsyncNotifier<MirrorConfigState> {
+  @override
+  Future<MirrorConfigState> build() => SystemBridge.getMirrorConfig();
+
+  Future<void> setSelection(String id, {String? customUrl}) async {
+    final cur = state.value ?? MirrorConfigState.defaults();
+    final nextCustom = customUrl ?? cur.customUrl;
+    await SystemBridge.setMirrorConfig(selected: id, customUrl: nextCustom);
+    state = AsyncData(cur.copyWith(selected: id, customUrl: nextCustom));
+  }
+
+  Future<void> saveCustomUrl(String url) async {
+    final cur = state.value ?? MirrorConfigState.defaults();
+    final trimmed = url.trim();
+    final nextSelected = trimmed.isNotEmpty ? 'custom' : 'auto';
+    await SystemBridge.setMirrorConfig(
+      selected: nextSelected,
+      customUrl: trimmed,
+    );
+    state = AsyncData(
+      cur.copyWith(selected: nextSelected, customUrl: trimmed),
+    );
+  }
+}
+
+/// 镜像并行测速状态与结果。
+class MirrorProbeState {
+  const MirrorProbeState({
+    this.probing = false,
+    this.results = const <MirrorProbeResult>[],
+  });
+
+  final bool probing;
+  final List<MirrorProbeResult> results;
+
+  MirrorProbeResult? resultFor(String id) {
+    for (final r in results) {
+      if (r.id == id) return r;
+    }
+    return null;
+  }
+
+  MirrorProbeResult? get fastestOk {
+    MirrorProbeResult? best;
+    for (final r in results) {
+      if (!r.ok) continue;
+      if (best == null || r.speedKbps > best.speedKbps) {
+        best = r;
+      }
+    }
+    return best;
+  }
+}
+
+final mirrorProbeProvider =
+    NotifierProvider<MirrorProbeNotifier, MirrorProbeState>(
+  MirrorProbeNotifier.new,
+);
+
+class MirrorProbeNotifier extends Notifier<MirrorProbeState> {
+  @override
+  MirrorProbeState build() => const MirrorProbeState();
+
+  Future<void> run({String? customUrl}) async {
+    if (state.probing) return;
+    state = MirrorProbeState(probing: true, results: state.results);
+    final res = await SystemBridge.probeMirrors(customUrl: customUrl);
+    state = MirrorProbeState(probing: false, results: res);
   }
 }
 
@@ -308,11 +423,13 @@ class PreviewState {
   const PreviewState({
     required this.playing,
     this.voiceId,
+    this.stage,
     this.lastError,
   });
 
   final bool playing;
   final String? voiceId;
+  final String? stage;
   final String? lastError;
 }
 
@@ -328,14 +445,17 @@ class PreviewNotifier extends Notifier<PreviewState> {
         return;
       }
       final playing = event.data['previewing'];
+      final stage = event.data['previewStage'] as String?;
       final err = event.data['previewError'] as String?;
-      if (playing is bool || err != null) {
+      if (playing is bool || stage != null || err != null) {
+        final nextPlaying = playing is bool ? playing : state.playing;
         state = PreviewState(
-          playing: playing is bool ? playing : false,
-          voiceId: (playing == true)
+          playing: nextPlaying,
+          voiceId: nextPlaying
               ? (event.data['previewVoiceId'] as String? ?? state.voiceId)
               : null,
-          lastError: err ?? (playing == true ? null : state.lastError),
+          stage: nextPlaying ? (stage ?? state.stage) : null,
+          lastError: err ?? (nextPlaying ? null : state.lastError),
         );
       }
     });
@@ -345,7 +465,11 @@ class PreviewNotifier extends Notifier<PreviewState> {
 
   void clearError() {
     if (state.lastError != null) {
-      state = PreviewState(playing: state.playing, voiceId: state.voiceId);
+      state = PreviewState(
+        playing: state.playing,
+        voiceId: state.voiceId,
+        stage: state.stage,
+      );
     }
   }
 

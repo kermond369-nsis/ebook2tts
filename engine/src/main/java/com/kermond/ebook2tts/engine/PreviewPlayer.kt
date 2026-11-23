@@ -43,6 +43,7 @@ class PreviewPlayer(private val context: Context) {
         fun onProgress(percent: Int)
         fun onDone()
         fun onError(code: Int, message: String)
+        fun onStage(stage: String) {}
     }
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor {
@@ -85,6 +86,7 @@ class PreviewPlayer(private val context: Context) {
                 val modelId = ConfigStore.modelId()
                 val spec = ModelCatalog.byId(modelId)
                 val dir = File(context.filesDir, "models/${spec.id}")
+                listener.onStage("loading_model")
                 val borrowed = CoordinatorHolder.getOrCreate(context).borrowBackend { !isActive() }
                 val owned = borrowed == null
                 val backend = borrowed
@@ -95,16 +97,25 @@ class PreviewPlayer(private val context: Context) {
                     if (sessionSeq.get() == mySeq) playing.set(false)
                     return@execute
                 }
-                Log.i(TAG, "PREVIEW|backend_ready|borrowed=${!owned}|sr=${backend.sampleRate}")
+                Log.i(TAG, "PREVIEW|backend_ready|model=$modelId|borrowed=${!owned}|sr=${backend.sampleRate}")
                 val pool = VoiceCatalog.poolForModel(modelId, backend.numSpeakers())
                 val voice = VoiceCatalog.resolve(pool, voiceId ?: ConfigStore.narratorVoice())
                 CoordinatorHolder.previewActive = true
                 var doneSeg = 0
+                var totalBytes = 0L
+                var totalFrames = 0L
+                var playingStageSent = false
                 val tTask = System.currentTimeMillis()
                 try {
                     val tTrack = System.currentTimeMillis()
                     val trackOk = startTrack(backend.sampleRate, listener)
                     Log.i(TAG, "PREVIEW|track_open|ok=$trackOk|ms=${System.currentTimeMillis() - tTrack}")
+                    if (!trackOk) {
+                        listener.onError(-4, "音频输出设备初始化失败")
+                        if (sessionSeq.get() == mySeq) stop()
+                        return@execute
+                    }
+                    listener.onStage("synthesizing")
                     val segments = TextAnalyzer.analyze(text)
                     val targetSpeed = speed.coerceIn(SpeedMapper.MIN, SpeedMapper.MAX)
                     for (seg in segments) {
@@ -121,7 +132,13 @@ class PreviewPlayer(private val context: Context) {
                         backend.generateStreamingCached(spoken, voice.speakerId, targetSpeed) { pcm ->
                             if (!isActive()) return@generateStreamingCached false
                             if (pcm.isNotEmpty()) {
+                                if (!playingStageSent) {
+                                    playingStageSent = true
+                                    listener.onStage("playing")
+                                }
                                 segBytes += pcm.size
+                                totalBytes += pcm.size
+                                totalFrames += pcm.size / 2L
                                 var i = 0
                                 while (i < pcm.size && isActive()) {
                                     val end = minOf(i + 4096, pcm.size)
@@ -140,8 +157,16 @@ class PreviewPlayer(private val context: Context) {
                     if (owned) backend.release()
                 }
                 if (!isActive()) return@execute
-                Log.i(TAG, "PREVIEW|segments_done|count=$doneSeg|total_ms=${System.currentTimeMillis() - tTask}")
-                runCatching { track?.stop() }
+                if (totalBytes <= 0L) {
+                    val errMsg = backend.lastSynthError ?: "本地引擎未生成有效音频（0 字节），请确认模型已完整安装或切换音色重试"
+                    Log.w(TAG, "PREVIEW|empty_audio|model=$modelId|msg=$errMsg")
+                    if (sessionSeq.get() == mySeq) stop()
+                    listener.onError(-4, errMsg)
+                    return@execute
+                }
+                Log.i(TAG, "PREVIEW|segments_done|count=$doneSeg|bytes=$totalBytes|total_ms=${System.currentTimeMillis() - tTask}")
+                drainTrack(totalFrames, backend.sampleRate, ::isActive)
+                if (!isActive()) return@execute
                 stop()
                 listener.onDone()
             } catch (t: Throwable) {
@@ -196,10 +221,13 @@ class PreviewPlayer(private val context: Context) {
         val useStretcher = !request.usesNativeSpeed() && !PcmSpeedStretcher.isNoop(stretchSpeed)
         val stretcher = if (useStretcher) PcmSpeedStretcher(stretchSpeed) else null
         val segments = TextAnalyzer.analyze(rawText)
+        listener.onStage("synthesizing")
         var doneSeg = 0
         var trackFailed = false
         var anyPcm = false
         var trackSr = 0
+        var totalFrames = 0L
+        var playingStageSent = false
         val designedLogged = HashSet<String>()
         for (seg in segments) {
             if (!isActive()) return true
@@ -253,6 +281,11 @@ class PreviewPlayer(private val context: Context) {
                     val pcm = stretcher?.process(aligned, activeSr) ?: aligned
                     if (pcm.isEmpty()) return@onChunk isActive()
                     anyPcm = true
+                    totalFrames += pcm.size / 2L
+                    if (!playingStageSent) {
+                        playingStageSent = true
+                        listener.onStage("playing")
+                    }
                     runCatching { track?.write(pcm, 0, pcm.size) }
                     isActive()
                 },
@@ -268,7 +301,10 @@ class PreviewPlayer(private val context: Context) {
                     if (tailResampled != null && isActive()) {
                         val activeSr = if (trackSr > 0) trackSr else request.sampleRate
                         val pcm = stretcher?.process(tailResampled, activeSr) ?: tailResampled
-                        if (pcm.isNotEmpty()) runCatching { track?.write(pcm, 0, pcm.size) }
+                        if (pcm.isNotEmpty()) {
+                            totalFrames += pcm.size / 2L
+                            runCatching { track?.write(pcm, 0, pcm.size) }
+                        }
                     }
                     doneSeg++
                     listener.onProgress((doneSeg * 100) / segments.size.coerceAtLeast(1))
@@ -308,10 +344,11 @@ class PreviewPlayer(private val context: Context) {
         runCatching {
             // 榨出伸缩器残余样本（在线试听末段不截断）
             stretcher?.end()?.takeIf { it.isNotEmpty() }?.let { tail ->
+                totalFrames += tail.size / 2L
                 track?.write(tail, 0, tail.size)
             }
-            track?.stop()
         }
+        drainTrack(totalFrames, if (trackSr > 0) trackSr else request.sampleRate, isActive)
         releaseTrack()
         abandonFocus()
         playing.set(false)
@@ -439,6 +476,26 @@ class PreviewPlayer(private val context: Context) {
         val t = track
         t?.play()
         return t != null
+    }
+
+    /** 等待 MODE_STREAM 尾音播放完再释放 AudioTrack，防短句截断；响应中止。 */
+    private fun drainTrack(totalFrames: Long, sampleRate: Int, isActive: () -> Boolean) {
+        val t = track ?: return
+        if (totalFrames <= 0L) return
+        runCatching { t.stop() }
+        val sr = sampleRate.coerceAtLeast(8000)
+        val maxWaitMs = ((totalFrames * 1000L) / sr + 800L).coerceIn(400L, 15_000L)
+        val deadline = android.os.SystemClock.uptimeMillis() + maxWaitMs
+        while (isActive() && android.os.SystemClock.uptimeMillis() < deadline) {
+            val head = runCatching { t.playbackHeadPosition.toLong() and 0xFFFFFFFFL }.getOrDefault(totalFrames)
+            if (head >= totalFrames) break
+            try {
+                Thread.sleep(25L)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                break
+            }
+        }
     }
 
     private fun releaseTrack() {

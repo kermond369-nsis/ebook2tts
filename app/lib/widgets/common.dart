@@ -390,11 +390,11 @@ class SecondaryButton extends StatelessWidget {
 /// 体积格式化：按 1 兆 = 100 万字节（与清单实测值口径一致）。
 String formatMb(int bytes) => '${bytes ~/ 1000000} 兆';
 
-/// 下载阶段 → 中文文案。
+/// 下载/导入阶段 → 中文文案。
 String phaseLabel(String phase) {
   switch (phase) {
     case 'probe':
-      return '正在选择最快镜像';
+      return '正在测速选源';
     case 'download':
       return '下载中';
     case 'download_vocoder':
@@ -402,9 +402,13 @@ String phaseLabel(String phase) {
     case 'verify':
       return '校验文件完整性';
     case 'extract':
-      return '解压中';
+      return '解压模型中';
     case 'promote':
       return '安装收尾';
+    case 'import':
+      return '正在导入本地模型';
+    case 'cancelled':
+      return '已取消（断点已保留）';
     case 'done':
       return '完成';
     case 'error':
@@ -413,6 +417,14 @@ String phaseLabel(String phase) {
       return '等待中';
   }
 }
+
+/// 试听阶段 → 中文文案。
+String previewStageLabel(String? stage) => switch (stage) {
+      'loading_model' => '正在加载本地模型…',
+      'synthesizing' => '正在合成语音…',
+      'playing' => '播放中',
+      _ => '播放中',
+    };
 
 /// 引擎状态 → 中文文案。
 String engineStateLabel(dynamic state) {

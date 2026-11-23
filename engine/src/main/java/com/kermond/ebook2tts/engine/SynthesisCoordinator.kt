@@ -1138,21 +1138,38 @@ class SynthesisCoordinator(
     fun borrowBackend(isStopped: () -> Boolean): SherpaBackend? = awaitBackend(isStopped)
 
     private fun awaitBackend(isStopped: () -> Boolean): SherpaBackend? {
-        backend?.takeIf { it.isReady() }?.let { return it }
+        val wantedModel = ConfigStore.modelId()
+        backend?.takeIf { it.isReady() && loadedModelId == wantedModel }?.let { return it }
         if (destroyed || isStopped()) return null
-        if (sm.state == EngineState.NO_MODEL || sm.state == EngineState.ERROR) return null
-        if (idleReleased || (backend == null && sm.state == EngineState.READY)) {
-            if (autoRewarmPending.compareAndSet(false, true)) {
-                Log.i(TAG, "RELOAD|auto_rewarm|reason=await_backend")
-                reloadExecutor.execute { reloadInternal() }
+        val activeInstalled = ModelPresence.isActiveModelInstalled(context)
+        if (!activeInstalled && (sm.state == EngineState.NO_MODEL || sm.state == EngineState.ERROR)) return null
+        val rewarmDispatched = if (idleReleased || loadedModelId != wantedModel || backend == null ||
+            (activeInstalled && sm.state == EngineState.NO_MODEL)
+        ) {
+            autoRewarmPending.compareAndSet(false, true).also { started ->
+                if (started) {
+                    Log.i(TAG, "RELOAD|auto_rewarm|reason=await_backend|wanted=$wantedModel|loaded=$loadedModelId")
+                    reloadExecutor.execute { reloadInternal() }
+                }
             }
+        } else {
+            false
         }
         readyLock.withLock {
             val deadline = System.nanoTime() + READY_WAIT_MS * 1_000_000L
             while (true) {
-                backend?.takeIf { it.isReady() }?.let { return it }
+                val targetModel = ConfigStore.modelId()
+                backend?.takeIf { it.isReady() && loadedModelId == targetModel }?.let { return it }
                 if (destroyed || isStopped()) return null
-                if (sm.state == EngineState.NO_MODEL || sm.state == EngineState.ERROR) return null
+                val reloadRunning = rewarmDispatched || autoRewarmPending.get()
+                if (!reloadRunning && (sm.state == EngineState.NO_MODEL || sm.state == EngineState.ERROR)) {
+                    return null
+                }
+                if (loadedModelId != null && loadedModelId != targetModel &&
+                    autoRewarmPending.compareAndSet(false, true)
+                ) {
+                    reloadExecutor.execute { reloadInternal() }
+                }
                 val remain = deadline - System.nanoTime()
                 if (remain <= 0L) return null
                 try {

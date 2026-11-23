@@ -91,10 +91,9 @@ class ManifestRepository(
             "https://raw.githubusercontent.com/kermond369-nsis/ebook2tts/main/manifest.json"
 
         /**
-         * 加速前缀：国内直连拿不到 `raw.githubusercontent.com`（实测 15s 超时），
-         * 而加速前缀支持 raw 域名（实测 ghfast.top 1.5s 取回 53KB）。顺序：官方优先 → 加速兜底。
+         * 加速前缀：国内直连 `raw.githubusercontent.com` 易超时，优先走经 Range 206 实测可用的镜像节点。
          */
-        val ACCELERATORS: List<String> = listOf("https://ghfast.top", "https://ghproxy.net")
+        val ACCELERATORS: List<String> = com.kermond.ebook2tts.core.ModelCatalog.MIRROR_PREFIXES
 
         /** 逐个尝试的清单地址 */
         val URLS: List<String> = listOf(RAW_URL) + ACCELERATORS.map { "$it/$RAW_URL" }

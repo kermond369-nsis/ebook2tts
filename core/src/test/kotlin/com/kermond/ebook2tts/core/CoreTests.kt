@@ -102,12 +102,12 @@ class ModelCatalogTest {
     @Test
     fun measuredSizes() {
         val int8 = ModelCatalog.byId("kokoro-int8")
-        assertEquals(147_031_220L, int8.downloadBytes)
+        assertEquals(147_052_523L, int8.downloadBytes)
         assertEquals(215_321_602L, int8.extractedBytes)
         val ll = ModelCatalog.byId("vits-zh-ll")
         assertEquals(118_810_709L, ll.downloadBytes)
         val fp = ModelCatalog.byId("kokoro-fp32")
-        assertEquals(364_816_464L, fp.downloadBytes)
+        assertEquals(364_855_331L, fp.downloadBytes)
     }
 
     @Test
@@ -198,6 +198,30 @@ class MirrorResolverTest {
         )
         // 尾斜杠归一化后行为一致
         assertEquals(direct, MirrorResolver.sources(spec, "$direct/").last())
+    }
+
+    @Test
+    fun orderedSources_respectsSelectionAndPrefix() {
+        val prefixed = MirrorResolver.resolveProxyOrBaseUrl(spec, "https://gh-proxy.com")
+        assertEquals("https://gh-proxy.com/${spec.primaryUrl}", prefixed)
+
+        val onnxDirect = "https://cdn.example.com/vocos-16khz-univ.onnx"
+        assertEquals(onnxDirect, MirrorResolver.resolveProxyOrBaseUrl(spec, onnxDirect))
+
+        val autoOrder = MirrorResolver.orderedSources(spec, MirrorResolver.MIRROR_AUTO, "")
+        assertTrue(autoOrder.first().startsWith("https://gh-proxy.com/"))
+        assertEquals(spec.primaryUrl, autoOrder.last())
+
+        val directOrder = MirrorResolver.orderedSources(spec, MirrorResolver.MIRROR_DIRECT, "")
+        assertEquals(spec.primaryUrl, directOrder.first())
+
+        val edgeOrder = MirrorResolver.orderedSources(spec, "https://edgeone.gh-proxy.org", "")
+        assertEquals("https://edgeone.gh-proxy.org/${spec.primaryUrl}", edgeOrder.first())
+
+        val customOrder = MirrorResolver.orderedSources(spec, MirrorResolver.MIRROR_CUSTOM, "https://my.cdn/tts")
+        assertEquals("https://my.cdn/tts/${spec.archiveName}", customOrder.first())
+
+        assertEquals("edgeone.gh-proxy.org", MirrorResolver.hostLabel(edgeOrder.first()))
     }
 }
 

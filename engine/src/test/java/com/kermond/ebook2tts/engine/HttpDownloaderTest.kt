@@ -140,4 +140,57 @@ class HttpDownloaderTest {
         assertTrue(downloaded())
         assertNull("超长残包应被清空重下（不得携带 Range）", server.takeRequest().getHeader("Range"))
     }
+
+    @Test
+    fun range416_clearsPartialAndRetriesFull() {
+        val srv416 = MockWebServer()
+        srv416.enqueue(MockResponse().setResponseCode(416))
+        srv416.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody(Buffer().write(payload)),
+        )
+        srv416.start()
+        try {
+            part().writeBytes(payload.copyOfRange(0, 50_000))
+            val url = srv416.url("/m.tar.bz2").toString()
+            downloader.download(url, part(), payload.size.toLong(), { _, _ -> }, { false })
+            assertTrue("416 后应清空残包并以整包重试成功", downloaded())
+        } finally {
+            srv416.shutdown()
+        }
+    }
+
+    @Test
+    fun htmlErrorPage_rejectedWithoutCorruptingPart() {
+        val srvHtml = MockWebServer()
+        srvHtml.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/html; charset=utf-8")
+                .setBody("<html><body>blocked</body></html>"),
+        )
+        srvHtml.start()
+        try {
+            val url = srvHtml.url("/m.tar.bz2").toString()
+            try {
+                downloader.download(url, part(), payload.size.toLong(), { _, _ -> }, { false })
+                fail("返回 text/html 时必须拒收并抛异常")
+            } catch (e: IOException) {
+                assertTrue(e.message!!.contains("html", ignoreCase = true))
+            }
+            assertTrue("HTML 错误页不得写入 .part", !part().exists() || part().length() == 0L)
+        } finally {
+            srvHtml.shutdown()
+        }
+    }
+
+    @Test
+    fun probeAll_returnsOkAndFailedEntries() {
+        val results = downloader.probeAll(listOf(baseUrl, "http://127.0.0.1:1/dead"))
+        assertEquals(2, results.size)
+        assertTrue(results[0].ok)
+        assertTrue(results[0].speedKbps > 0.0)
+        assertTrue(!results[1].ok)
+    }
 }
