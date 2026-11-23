@@ -106,6 +106,7 @@ flutter {
 
 dependencies {
     implementation(project(":engine"))
+    implementation("androidx.core:core-ktx:1.13.1")
 }
 
 // release 构建签名守卫（任务执行期校验，不影响 debug 与无凭据 CI 配置）

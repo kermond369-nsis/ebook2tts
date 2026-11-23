@@ -6,7 +6,32 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ebook2tts/engine/mock_engine_service.dart';
 import 'package:ebook2tts/main.dart';
 import 'package:ebook2tts/pages/diagnostics_page.dart';
+import 'package:ebook2tts/pages/online_config_page.dart';
+import 'package:ebook2tts/pages/sample_page.dart';
+import 'package:ebook2tts/pages/settings_page.dart';
 import 'package:ebook2tts/state/providers.dart';
+
+Finder _pageScrollable(Type pageType) => find.descendant(
+      of: find.byType(pageType),
+      matching: find.byType(Scrollable),
+    );
+
+Future<void> _bringIntoView(
+  WidgetTester tester,
+  Finder target, {
+  required Type page,
+  double delta = 200,
+}) async {
+  if (target.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(
+      target,
+      delta,
+      scrollable: _pageScrollable(page),
+    );
+  }
+  await tester.ensureVisible(target);
+  await tester.pump();
+}
 
 Future<MockEngineService> _pumpApp(WidgetTester tester) async {
   final engine = await MockEngineService.create();
@@ -49,16 +74,31 @@ void main() {
     expect(find.text('启用在线朗读', skipOffstage: false), findsOneWidget);
     expect(find.text('MiMo 默认音色', skipOffstage: false), findsOneWidget);
 
-    await tester.ensureVisible(find.text('冰糖 · 中文女声'));
-    await tester.pump();
+    await _bringIntoView(
+      tester,
+      find.text('冰糖 · 中文女声'),
+      page: OnlineConfigPage,
+      delta: 180,
+    );
     await tester.tap(find.widgetWithText(ChoiceChip, '冰糖 · 中文女声'));
     await tester.pump(const Duration(milliseconds: 200));
     expect((await engine.config()).voice, '冰糖');
+    await tester.pump(const Duration(seconds: 4));
 
-    await tester.ensureVisible(find.text('OpenAI 兼容'));
-    await tester.pump();
+    await _bringIntoView(
+      tester,
+      find.text('OpenAI 兼容'),
+      page: OnlineConfigPage,
+      delta: -180,
+    );
     await tester.tap(find.text('OpenAI 兼容'));
     await tester.pump(const Duration(milliseconds: 200));
+    await _bringIntoView(
+      tester,
+      find.text('OpenAI 兼容参数'),
+      page: OnlineConfigPage,
+      delta: 180,
+    );
     expect(find.text('OpenAI 兼容参数'), findsOneWidget);
     await tester.pump(const Duration(seconds: 4));
   });
@@ -71,19 +111,32 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
 
     expect(find.text('本地推理性能', skipOffstage: false), findsNothing);
-    await tester.ensureVisible(find.text('弱网回退与系统 TTS 兜底'));
-    await tester.pump();
+    await _bringIntoView(
+      tester,
+      find.text('弱网回退与系统 TTS 兜底'),
+      page: SettingsPage,
+      delta: 180,
+    );
     expect(find.text('6 秒超时'), findsOneWidget);
 
-    await tester.ensureVisible(find.text('8 秒'));
-    await tester.pump();
+    await _bringIntoView(
+      tester,
+      find.text('8 秒'),
+      page: SettingsPage,
+      delta: 180,
+    );
     await tester.tap(find.widgetWithText(ChoiceChip, '8 秒'));
     await tester.pump(const Duration(milliseconds: 200));
     expect((await engine.config()).timeoutMs, 8000);
     expect(find.text('8 秒超时'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4));
 
-    await tester.ensureVisible(find.text('小爱语音引擎'));
-    await tester.pump();
+    await _bringIntoView(
+      tester,
+      find.text('小爱语音引擎'),
+      page: SettingsPage,
+      delta: 180,
+    );
     await tester.tap(find.text('小爱语音引擎'));
     await tester.pump(const Duration(milliseconds: 200));
     expect((await engine.config()).fallbackTtsEngine, 'com.xiaomi.mibrain.speech');
@@ -91,7 +144,7 @@ void main() {
     await tester.scrollUntilVisible(
       find.text('允许使用移动数据流量'),
       200,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: _pageScrollable(SettingsPage),
     );
     expect((await engine.config()).allowMobileData, isFalse);
     await tester.pump(const Duration(seconds: 4));
@@ -106,6 +159,12 @@ void main() {
     expect(find.text('弱网兜底'), findsOneWidget);
     expect(find.text('开始朗读'), findsOneWidget);
 
+    await _bringIntoView(
+      tester,
+      find.text('开始朗读'),
+      page: SamplePage,
+      delta: 180,
+    );
     await tester.tap(find.text('开始朗读'));
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pump(const Duration(seconds: 1));
@@ -115,6 +174,12 @@ void main() {
     await tester.tap(find.byIcon(Icons.monitor_heart_outlined));
     await tester.pumpAndSettle();
     expect(find.byType(DiagnosticsPage), findsOneWidget);
+    await _bringIntoView(
+      tester,
+      find.text('系统 TTS 兜底'),
+      page: DiagnosticsPage,
+      delta: 180,
+    );
     expect(find.text('系统 TTS 兜底'), findsOneWidget);
   });
 }
