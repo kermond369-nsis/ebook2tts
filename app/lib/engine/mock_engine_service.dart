@@ -330,13 +330,13 @@ class MockEngineService implements EngineService {
     Timer(Duration(milliseconds: probeMs), () {
       if (generation != _downloadGeneration) return;
       _log('已选择最快镜像，开始下载（共 ${_mb(target.downloadBytes)} 兆）');
-      final start = DateTime.now();
+      var elapsed = 0;
       _downloadTimer = Timer.periodic(const Duration(milliseconds: 120), (t) {
         if (generation != _downloadGeneration) {
           t.cancel();
           return;
         }
-        final elapsed = DateTime.now().difference(start).inMilliseconds;
+        elapsed += 120;
         final frac = (elapsed / downloadMs).clamp(0.0, 1.0);
         final received = (target.downloadBytes * frac).round();
         _download = DownloadProgress(
