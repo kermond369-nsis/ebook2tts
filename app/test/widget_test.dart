@@ -220,6 +220,7 @@ void main() {
     expect(find.text('启用此模型'), findsOneWidget);
     await tester.tap(find.text('启用此模型').hitTestable());
     await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump(const Duration(seconds: 4));
 
     final models = await engine.models();
     expect(models.firstWhere((m) => m.id == 'matcha-zh-en').active, isTrue);
@@ -237,18 +238,19 @@ void main() {
     expect(find.text('2 线程 · CPU'), findsOneWidget);
 
     await tester.scrollUntilVisible(
-      find.text('4 线程').hitTestable(),
+      find.widgetWithText(ChoiceChip, '4 线程').hitTestable(),
       180,
       scrollable: find.byType(Scrollable).first,
     );
     await tester.pump();
-    await tester.tap(find.text('4 线程').hitTestable());
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.widgetWithText(ChoiceChip, '4 线程').hitTestable());
+    await tester.pump(const Duration(milliseconds: 200));
     await tester.scrollUntilVisible(
       find.text('4 线程 · CPU').hitTestable(),
       -180,
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('4 线程 · CPU'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4));
   });
 }
